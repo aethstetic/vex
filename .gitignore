@@ -1,0 +1,21 @@
+# Build artifacts
+*.o
+*.so
+vex
+
+# Tests
+tests/
+
+# Example plugins (compiled)
+examples/plugins/*.so
+
+# Editor/IDE
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Debug
+*.dSYM/
+core

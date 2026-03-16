@@ -1,0 +1,30 @@
+# Math utilities for vex
+
+fn abs(x) {
+    if x < 0 { return -x }
+    return x
+}
+
+fn max(a, b) {
+    if a > b { return a }
+    return b
+}
+
+fn min(a, b) {
+    if a < b { return a }
+    return b
+}
+
+fn clamp(x, lo, hi) {
+    if x < lo { return lo }
+    if x > hi { return hi }
+    return x
+}
+
+fn sum(list) {
+    let total = 0
+    for item in list {
+        total = total + item
+    }
+    return total
+}

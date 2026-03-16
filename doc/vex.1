@@ -1,0 +1,457 @@
+.\" vex.1 - man page for the Vex shell
+.\" Copyright (c) 2026 vex
+.\"
+.TH VEX 1 "2026-03-15" "Vex" "User Commands"
+.SH NAME
+vex \- a structured data shell
+.SH SYNOPSIS
+.B vex
+.RB [ \-l | \-\-login ]
+.RB [ \-c
+.IR command ]
+.RB [ \-v | \-\-version ]
+.RB [ \-h | \-\-help ]
+.RI [ script
+.RI [ args... ]]
+.SH DESCRIPTION
+.B Vex
+is a modern shell that combines structured data pipelines with traditional
+shell features.
+It supports typed values (strings, integers, floats, booleans, lists,
+records, closures), first-class functions, and built-in format parsers.
+.PP
+When invoked without arguments,
+.B vex
+starts an interactive session with line editing, syntax highlighting,
+autosuggestion, and tab completion.
+When given a
+.I script
+argument, it executes the file non-interactively.
+.SH OPTIONS
+.TP
+.BI \-c " command"
+Execute
+.I command
+as a string and exit.
+.TP
+.BR \-l ", " \-\-login
+Start as a login shell, sourcing system and user login configuration files.
+.TP
+.BR \-v ", " \-\-version
+Print the version number and exit.
+.TP
+.BR \-h ", " \-\-help
+Print a brief usage summary and exit.
+.TP
+.IR script " [" args... ]
+Run the given script file.
+Arguments are accessible within the script as
+.BR $0 ", " $1 ", ..., "
+.BR $argv " (list of all arguments), and"
+.BR $argc " (argument count)."
+.SH SYNTAX
+.SS Variables
+.nf
+\fBlet\fR x = 5          # immutable binding
+\fBmut\fR y = 10         # mutable binding
+echo $x              # variable expansion
+.fi
+.SS Strings
+.nf
+"hello $name"        # interpolated string
+\(aqraw string\(aq         # literal string (no interpolation)
+.fi
+.SS Lists
+.nf
+[1, 2, 3]
+.fi
+.SS Records
+.nf
+{name: "vex", version: 1}
+.fi
+.SS Closures
+.nf
+{|x| $x * 2}
+.fi
+.SS Pipes
+.nf
+data | filter | transform      # structured data pipe
+cmd |> cmd                     # byte stream pipe
+.fi
+.SS Ranges
+.nf
+1..10                # inclusive range
+1..<10               # exclusive range
+.fi
+.SS Control Flow
+.nf
+\fBif\fR condition { ... } \fBelse\fR { ... }
+\fBfor\fR x \fBin\fR $list { ... }
+\fBwhile\fR condition { ... }
+\fBloop\fR { ... }
+\fBmatch\fR $val { pattern => action, ... }
+\fBtry\fR { ... } \fBcatch\fR { |err| ... }
+.fi
+.SS Functions
+.nf
+\fBfn\fR name [params] { body }
+.fi
+.SS Operators
+Arithmetic:
+.BR + ", " \- ", " * ", " / ", " %
+.br
+Comparison:
+.BR == ", " != ", " < ", " > ", " <= ", " >=
+.br
+Logical:
+.BR and ", " or ", " not
+.br
+Regex match:
+.B =~
+.br
+Error propagation:
+.B ?
+.SS External Commands
+.nf
+^command             # explicit external invocation
+command              # resolved after builtins/functions
+.fi
+.SS Redirections
+.nf
+cmd > file           # stdout to file
+cmd >> file          # stdout append
+cmd 2> file          # stderr to file
+cmd 2>> file         # stderr append
+cmd < file           # stdin from file
+cmd <<< "string"     # here-string
+cmd 2>&1             # stderr to stdout
+cmd <<EOF            # heredoc
+\&...
+EOF
+.fi
+.SS Background Execution
+.nf
+command &
+.fi
+.SS Conditional Chains
+.nf
+cmd1 && cmd2 || cmd3
+.fi
+.SH LINE EDITING
+.B Vex
+provides interactive line editing with two modes: Emacs (default) and Vi.
+The editing mode is controlled by the
+.B VEX_EDIT_MODE
+environment variable.
+.SS Emacs Mode (default)
+.TP
+.B Ctrl\-A / Ctrl\-E
+Move to beginning / end of line.
+.TP
+.B Ctrl\-K
+Kill text from cursor to end of line (saved to kill ring).
+.TP
+.B Ctrl\-U
+Kill text from cursor to beginning of line.
+.TP
+.B Ctrl\-W
+Kill word backward.
+.TP
+.B Ctrl\-Y
+Yank (paste) from kill ring.
+.TP
+.B Ctrl\-R
+Reverse incremental history search.
+.TP
+.B Ctrl\-L
+Clear screen.
+.TP
+.B Ctrl\-X Ctrl\-E
+Open current line in
+.BR $EDITOR .
+.TP
+.B Ctrl\-Z
+Suspend the shell (or foreground job).
+.TP
+.B Tab
+Trigger completion (displayed as multi-column grid).
+.TP
+.B Shift\-Tab
+Reverse cycle through completions.
+.TP
+.B Right arrow (at end of line)
+Accept autosuggestion.
+.TP
+.B Ctrl\-Right
+Accept one word from autosuggestion.
+.SS Vi Mode
+Activate by setting
+.BR VEX_EDIT_MODE =vi.
+.PP
+.I Insert mode:
+.TP
+.BR i / a / A / I
+Enter insert mode (before cursor / after cursor / end of line / beginning of line).
+.PP
+.I Normal mode movement:
+.TP
+.BR h / l
+Move left / right.
+.TP
+.BR w / b / e
+Word forward / backward / end.
+.TP
+.BR 0 " / " $
+Beginning / end of line.
+.PP
+.I Delete:
+.TP
+.B x
+Delete character under cursor.
+.TP
+.B dd
+Clear entire line.
+.TP
+.BR dw " / " db " / " d$ " / " d0
+Delete by motion.
+.PP
+.I Change:
+.TP
+.BR cc " / " cw " / " cb " / " c$ " / " c0 " / " C " / " S
+Change by motion.
+.PP
+.I Other:
+.TP
+.B u
+Undo.
+.TP
+.BR p " / " P
+Paste after / before cursor.
+.TP
+.BR yy " / " yw " / " y$ " / " y0
+Yank by motion.
+.TP
+.BR f / F / t / T " + " \fIchar\fR
+Find / find backward / till / till backward the given character.
+.TP
+.B /
+Search history (activates Ctrl\-R).
+.SH BUILTINS
+.B Vex
+includes over 390 built-in commands covering file operations, data
+manipulation, string processing, type conversion, math, and more.
+.PP
+Use the
+.B help
+command for documentation on a specific builtin:
+.RS
+.nf
+help each
+help str split
+.fi
+.RE
+.PP
+Use the
+.B builtins
+command to list all available builtins.
+.SH PROMPT CUSTOMIZATION
+The prompt can be configured using environment variables or callback closures.
+.SS Format Specifiers
+Set the
+.B VEX_PROMPT
+or
+.B VEX_RPROMPT
+environment variables using the following specifiers:
+.TP
+.B %d
+Current working directory (full path).
+.TP
+.B %D
+Basename of current working directory.
+.TP
+.B %g
+Current Git branch name (empty if not in a repository).
+.TP
+.B %t
+Current time in HH:MM format.
+.TP
+.B %T
+Current time in HH:MM:SS format.
+.TP
+.B %n
+Username.
+.TP
+.B %h
+Hostname.
+.TP
+.B %e
+Last exit code (displayed only if non-zero).
+.TP
+.B %v
+Vi mode indicator:
+.B INSERT
+or
+.BR NORMAL .
+Empty when in Emacs mode.
+.TP
+.B %#
+.B $
+for normal users,
+.B #
+for root.
+.TP
+.BR %{ \fIstyle\fR }
+ANSI style, e.g.\&
+.BR %{bold,blue} " or " %{reset} .
+.SS Prompt Closures
+For full dynamic control, assign a closure:
+.RS
+.nf
+prompt-fn {|| "my prompt> "}
+rprompt-fn {|| $"(date now | format)"}
+.fi
+.RE
+.SH HOOKS
+Hooks allow running closures at specific shell lifecycle points.
+.TP
+.B preexec
+Runs before each command is executed.
+Receives the command string as an argument.
+.RS
+.nf
+hook-add preexec {|cmd| log $cmd}
+.fi
+.RE
+.TP
+.B precmd
+Runs before each prompt is displayed.
+.RS
+.nf
+hook-add precmd {|| refresh-status}
+.fi
+.RE
+.TP
+.B chpwd
+Runs when the working directory changes.
+.RS
+.nf
+hook-add chpwd {|| ls}
+.fi
+.RE
+.SH ABBREVIATIONS
+Abbreviations expand inline as you type, before the command is executed.
+.TP
+.BI "abbr add " "name expansion"
+Define an abbreviation.
+.TP
+.BI "abbr remove " name
+Remove an abbreviation.
+.TP
+.B abbr list
+List all defined abbreviations.
+.PP
+Example:
+.RS
+.nf
+abbr add gs git status
+abbr add gco git checkout
+.fi
+.RE
+.SH COMPLETIONS
+.TP
+.BI "complete " "command" " \-w " "\(dqword1 word2 ...\(dq"
+Register a static word list for completing arguments to
+.IR command .
+.TP
+.BI "complete\-fn " "\(dqcommand\(dq" " " "closure"
+Register a dynamic completion callback.
+The closure receives the current prefix and must return a list of candidates.
+.RS
+.nf
+complete-fn "myapp" {|prefix|
+    myapp --completions $prefix | lines
+}
+.fi
+.RE
+.SH SHELL OPTIONS
+Shell behaviour can be tuned with
+.BR set :
+.TP
+.BR "set \-e" " / " "set \-o errexit"
+Exit immediately if a command returns a non-zero status.
+.TP
+.BR "set \-x" " / " "set \-o xtrace"
+Print each command before execution (prefixed with
+.BR + ).
+.TP
+.BR "set \-u" " / " "set \-o nounset"
+Treat references to undefined variables as errors.
+.TP
+.B set \-o noclobber
+Prevent
+.B >
+from overwriting existing files (use
+.B >|
+to force).
+.SH ENVIRONMENT VARIABLES
+.TP
+.B VEX_PROMPT
+Prompt format string (see
+.BR "PROMPT CUSTOMIZATION" ).
+.TP
+.B VEX_RPROMPT
+Right-side prompt format string.
+.TP
+.B VEX_EDIT_MODE
+Line editing mode:
+.B emacs
+(default) or
+.BR vi .
+.TP
+.B VEX_HISTSIZE
+Maximum number of history entries to retain.
+Default is 1000.
+.TP
+.BR VEX_COLOR_KEYWORD ", " VEX_COLOR_BUILTIN ", etc."
+Syntax highlighting colours, specified as SGR parameter strings (e.g.\&
+.BR "1;35" " for bold magenta)."
+.TP
+.B VEX_LOGIN_SHELL
+Set to
+.B 1
+when running as a login shell.
+.SH FILES
+.TP
+.I /etc/vex/config.vex
+System-wide configuration, sourced on every invocation.
+.TP
+.I /etc/vex/profile.vex
+System-wide login configuration, sourced only for login shells.
+.TP
+.I ~/.config/vex/config.vex
+Per-user configuration, sourced on every invocation.
+.TP
+.I ~/.config/vex/profile.vex
+Per-user login configuration, sourced only for login shells.
+.TP
+.I ~/.config/vex/history
+Command history file.
+.TP
+.I ~/.config/vex/plugins.vex
+List of enabled plugins for selective autoloading.
+.TP
+.I ~/.config/vex/themes/
+User theme files.
+.TP
+.I ~/.local/share/vex/plugins/
+Installed plugin packages.
+.SH EXIT STATUS
+.B Vex
+returns the exit status of the last command executed, or zero if no
+commands were run.
+.SH SEE ALSO
+.BR bash (1),
+.BR zsh (1),
+.BR fish (1)
+.SH AUTHORS
+aeth
