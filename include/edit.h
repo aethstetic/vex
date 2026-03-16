@@ -43,6 +43,8 @@ enum {
     KEY_SHIFT_TAB,
     KEY_CTRL_LEFT,
     KEY_CTRL_RIGHT,
+    KEY_PASTE_START,
+    KEY_PASTE_END,
 };
 
 /* Gap-less editing buffer for one input line. */
@@ -122,6 +124,10 @@ typedef struct {
 
     char *saved_input;
     size_t saved_input_pos;
+
+    char **paste_queue;
+    size_t paste_queue_count;
+    size_t paste_queue_cap;
 } EditState;
 
 void edit_init(EditState *e);

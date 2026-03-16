@@ -34,12 +34,16 @@ bool edit_enable_raw(EditState *e) {
 
     if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) == -1) return false;
     e->raw_mode = true;
+    /* Enable bracket paste mode */
+    write(STDOUT_FILENO, "\033[?2004h", 8);
     return true;
 }
 
 /* Restore original terminal attributes saved by edit_enable_raw */
 void edit_disable_raw(EditState *e) {
     if (e->raw_mode && termios_saved) {
+        /* Disable bracket paste mode */
+        write(STDOUT_FILENO, "\033[?2004l", 8);
         tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
         e->raw_mode = false;
     }
@@ -432,6 +436,15 @@ static int read_key(void) {
                         if (arrow == 'D') return KEY_CTRL_LEFT;
                     }
                 }
+
+                /* Bracket paste: \e[200~ and \e[201~ */
+                if (seq[1] == '2' && seq[2] == '0') {
+                    char s3, s4;
+                    if (read(STDIN_FILENO, &s3, 1) != 1) return KEY_ESC;
+                    if (read(STDIN_FILENO, &s4, 1) != 1) return KEY_ESC;
+                    if (s3 == '0' && s4 == '~') return KEY_PASTE_START;
+                    if (s3 == '1' && s4 == '~') return KEY_PASTE_END;
+                }
             } else {
                 switch (seq[1]) {
                 case 'A': return KEY_UP;
@@ -491,9 +504,10 @@ static const char *clr_bool     = "\033[0;33m";
 static const char *clr_pipe     = "\033[1;34m";
 static const char *clr_caret    = "\033[1;31m";
 static const char *clr_error    = "\033[1;31m";
+static const char *clr_variable = "\033[0;36m";
 
 static bool    colors_initialized = false;
-static char    color_bufs[10][32];
+static char    color_bufs[12][32];
 
 static const char *parse_color_env(const char *env_name,
                                    const char *default_val, int idx) {
@@ -517,6 +531,7 @@ static void init_colors(void) {
     clr_pipe     = parse_color_env("VEX_COLOR_PIPE",     "\033[1;34m", 7);
     clr_caret    = parse_color_env("VEX_COLOR_CARET",    "\033[1;31m", 8);
     clr_error    = parse_color_env("VEX_COLOR_ERROR",    "\033[1;31m", 9);
+    clr_variable = parse_color_env("VEX_COLOR_VARIABLE", "\033[0;36m", 10);
 }
 
 static const char *token_color(TokenType type) {
@@ -609,6 +624,7 @@ static void highlight_append(VexStr *out, const char *buf, size_t len) {
     Lexer lex = lexer_init(src);
     size_t last_end = 0;
     bool cmd_pos = true;
+    bool after_dollar = false;
 
     for (;;) {
         Token tok = lexer_next(&lex);
@@ -617,11 +633,40 @@ static void highlight_append(VexStr *out, const char *buf, size_t len) {
         size_t tok_start = (size_t)(tok.start - src);
         size_t tok_end = tok_start + tok.length;
 
+        /* Gap between tokens may contain comments consumed by skip_whitespace */
         if (tok_start > last_end) {
-            vstr_append(out, buf + last_end, tok_start - last_end);
+            const char *gap = buf + last_end;
+            size_t gap_len = tok_start - last_end;
+            /* Check for '#' comment in the gap */
+            size_t comment_off = gap_len;
+            for (size_t i = 0; i < gap_len; i++) {
+                if (gap[i] == '#') { comment_off = i; break; }
+            }
+            if (comment_off < gap_len) {
+                /* Whitespace before comment */
+                if (comment_off > 0)
+                    vstr_append(out, gap, comment_off);
+                /* Comment in dim color */
+                vstr_append_cstr(out, clr_comment);
+                vstr_append(out, gap + comment_off, gap_len - comment_off);
+                vstr_append_cstr(out, CLR_RESET);
+            } else {
+                vstr_append(out, gap, gap_len);
+            }
         }
 
         const char *color = token_color(tok.type);
+
+        /* Highlight $variables */
+        if (tok.type == TOK_DOLLAR || tok.type == TOK_DOLLAR_LPAREN) {
+            color = clr_variable;
+            after_dollar = true;
+        } else if (after_dollar && tok.type == TOK_IDENT) {
+            color = clr_variable;
+            after_dollar = false;
+        } else {
+            after_dollar = false;
+        }
 
         if (tok.type == TOK_IDENT && !color) {
             char name[128];
@@ -664,8 +709,23 @@ static void highlight_append(VexStr *out, const char *buf, size_t len) {
         last_end = tok_end;
     }
 
+    /* Trailing content (including comments at end of line) */
     if (last_end < len) {
-        vstr_append(out, buf + last_end, len - last_end);
+        const char *gap = buf + last_end;
+        size_t gap_len = len - last_end;
+        size_t comment_off = gap_len;
+        for (size_t i = 0; i < gap_len; i++) {
+            if (gap[i] == '#') { comment_off = i; break; }
+        }
+        if (comment_off < gap_len) {
+            if (comment_off > 0)
+                vstr_append(out, gap, comment_off);
+            vstr_append_cstr(out, clr_comment);
+            vstr_append(out, gap + comment_off, gap_len - comment_off);
+            vstr_append_cstr(out, CLR_RESET);
+        } else {
+            vstr_append(out, gap, gap_len);
+        }
     }
 
     free(src);
@@ -891,6 +951,8 @@ static void gather_dir_completions(EditState *e, const char *prefix, size_t pref
 }
 
 static void gather_command_completions(EditState *e, const char *prefix, size_t prefix_len) {
+    if (prefix_len == 0) return;
+
     size_t cap = 64;
     e->comp_matches = malloc(cap * sizeof(char *));
 
@@ -1224,6 +1286,7 @@ have_completions:
     e->buf.len = new_len;
     e->buf.pos = e->comp_word_start + match_len;
     e->buf.buf[e->buf.len] = '\0';
+    e->comp_word_len = match_len;
 }
 
 /* Redraw the entire line: prompt, syntax-highlighted input, hints, completion menu, and cursor */
@@ -1231,7 +1294,13 @@ static void render(EditState *e) {
 
     VexStr out = vstr_empty();
 
-    vstr_append_cstr(&out, "\r");
+    /* Move cursor up to the first row if previous render wrapped */
+    if (e->old_row_count > 1) {
+        char move_up[32];
+        snprintf(move_up, sizeof(move_up), "\033[%zuA", e->old_row_count - 1);
+        vstr_append_cstr(&out, move_up);
+    }
+    vstr_append_cstr(&out, "\r\033[J");
 
     if (e->vi_mode) {
         if (e->vi_insert)
@@ -1244,11 +1313,24 @@ static void render(EditState *e) {
 
     highlight_append(&out, e->buf.buf, e->buf.len);
 
-    const char *hint = find_history_hint(e);
-    if (hint) {
-        vstr_append_cstr(&out, "\033[90m");
-        vstr_append_cstr(&out, hint);
+    if (e->completing && e->comp_count > 1) {
+        /* Show completion indicator and description inline */
+        char indicator[64];
+        snprintf(indicator, sizeof(indicator), " \033[90m(%zu/%zu)",
+                 e->comp_idx + 1, e->comp_count);
+        vstr_append_cstr(&out, indicator);
+        if (e->comp_descs && e->comp_descs[e->comp_idx]) {
+            vstr_append_cstr(&out, " ");
+            vstr_append_cstr(&out, e->comp_descs[e->comp_idx]);
+        }
         vstr_append_cstr(&out, "\033[0m");
+    } else {
+        const char *hint = find_history_hint(e);
+        if (hint) {
+            vstr_append_cstr(&out, "\033[90m");
+            vstr_append_cstr(&out, hint);
+            vstr_append_cstr(&out, "\033[0m");
+        }
     }
 
     vstr_append_cstr(&out, "\033[K");
@@ -1270,103 +1352,42 @@ static void render(EditState *e) {
         }
     }
 
-    for (size_t r = 0; r < e->comp_menu_rows; r++) {
-        vstr_append_cstr(&out, "\n\033[K");
-    }
-    if (e->comp_menu_rows > 0) {
-        char move_up[32];
-        snprintf(move_up, sizeof(move_up), "\033[%zuA", e->comp_menu_rows);
-        vstr_append_cstr(&out, move_up);
-    }
+    e->comp_menu_rows = 0;
 
-    if (e->completing && e->comp_count > 1) {
-
-        size_t max_width = 0;
-        for (size_t i = 0; i < e->comp_count; i++) {
-            size_t w = strlen(e->comp_matches[i]);
-            if (w > max_width) max_width = w;
-        }
-        max_width += 2;
-
-        size_t cols = (size_t)e->term_cols / max_width;
-        if (cols == 0) cols = 1;
-        size_t rows = (e->comp_count + cols - 1) / cols;
-
-        size_t max_rows = (size_t)e->term_rows / 3;
-        if (max_rows < 3) max_rows = 3;
-        bool truncated = false;
-        if (rows > max_rows) {
-            rows = max_rows;
-            truncated = true;
-
-            size_t max_visible = rows * cols;
-            if (max_visible > e->comp_count) max_visible = e->comp_count;
-            if (e->comp_idx >= max_visible) {
-                e->comp_idx = e->comp_idx % max_visible;
-            }
-        }
-
-        for (size_t r = 0; r < rows; r++) {
-            vstr_append_cstr(&out, "\n\033[K");
-            for (size_t c = 0; c < cols; c++) {
-                size_t idx = c * rows + r;
-                if (idx >= e->comp_count) break;
-
-                const char *match = e->comp_matches[idx];
-                size_t mlen = strlen(match);
-
-                if (idx == e->comp_idx) {
-
-                    vstr_append_cstr(&out, "\033[7m");
-                    vstr_append_cstr(&out, match);
-                    vstr_append_cstr(&out, "\033[0m");
-                } else {
-                    vstr_append_cstr(&out, match);
-                }
-
-                if (c + 1 < cols) {
-                    for (size_t p = mlen; p < max_width; p++)
-                        vstr_append_cstr(&out, " ");
-                }
-            }
-        }
-
-        if (e->comp_descs && e->comp_descs[e->comp_idx]) {
-            vstr_append_cstr(&out, "\n\033[K  \033[90m");
-            vstr_append_cstr(&out, e->comp_descs[e->comp_idx]);
-            vstr_append_cstr(&out, "\033[0m");
-            rows++;
-        }
-
-        if (truncated) {
-            char tbuf[64];
-            snprintf(tbuf, sizeof(tbuf), "\n\033[K  \033[90m... and %zu more\033[0m",
-                     e->comp_count - max_rows * cols);
-            vstr_append_cstr(&out, tbuf);
-            rows++;
-        }
-
-        if (rows > 0) {
-            char move_up[32];
-            snprintf(move_up, sizeof(move_up), "\033[%zuA", rows);
-            vstr_append_cstr(&out, move_up);
-        }
-
-        e->comp_menu_rows = rows;
-    } else {
-
-        vstr_append_cstr(&out, "\n\033[K\033[A");
-        e->comp_menu_rows = 0;
-    }
-
+    /* Calculate how many physical rows the content occupies for next render */
     size_t vi_indicator_width = e->vi_mode ? 4 : 0;
+    size_t total_width = vi_indicator_width + e->prompt_width +
+                         utf8_strwidth(e->buf.buf, e->buf.len);
+    const char *hint_str = find_history_hint(e);
+    if (hint_str) total_width += utf8_strwidth(hint_str, strlen(hint_str));
+    size_t content_rows = e->term_cols > 0 ? (total_width + (size_t)e->term_cols - 1) / (size_t)e->term_cols : 1;
+    if (content_rows < 1) content_rows = 1;
+    e->old_row_count = content_rows;
+
     size_t cursor_col = vi_indicator_width + e->prompt_width +
                         utf8_strwidth(e->buf.buf, e->buf.pos);
 
+    /* Position cursor accounting for wrapping */
+    size_t cursor_row = e->term_cols > 0 ? cursor_col / (size_t)e->term_cols : 0;
+    size_t cursor_phys_col = e->term_cols > 0 ? cursor_col % (size_t)e->term_cols : cursor_col;
+
+    /* Move to first row of content */
+    if (content_rows > 1) {
+        char move_up[32];
+        snprintf(move_up, sizeof(move_up), "\033[%zuA", content_rows - 1);
+        vstr_append_cstr(&out, move_up);
+    }
     vstr_append_cstr(&out, "\r");
-    if (cursor_col > 0) {
+
+    /* Move down to cursor row */
+    if (cursor_row > 0) {
+        char move_down[32];
+        snprintf(move_down, sizeof(move_down), "\033[%zuB", cursor_row);
+        vstr_append_cstr(&out, move_down);
+    }
+    if (cursor_phys_col > 0) {
         char move[32];
-        snprintf(move, sizeof(move), "\033[%zuC", cursor_col);
+        snprintf(move, sizeof(move), "\033[%zuC", cursor_phys_col);
         vstr_append_cstr(&out, move);
     }
 
@@ -1568,6 +1589,9 @@ void edit_free(EditState *e) {
     free(e->kill_ring);
     free(e->undo_buf);
     free(e->saved_input);
+    for (size_t i = 0; i < e->paste_queue_count; i++)
+        free(e->paste_queue[i]);
+    free(e->paste_queue);
     edit_disable_raw(e);
 }
 
@@ -1606,6 +1630,26 @@ static void abbr_expand_buf(EditBuf *buf) {
 
 /* Main line editor entry point: raw mode loop dispatching keys to emacs/vi handlers */
 char *edit_readline(EditState *e, const char *prompt) {
+    /* Return queued paste lines before prompting, echoing each line */
+    if (e->paste_queue_count > 0) {
+        char *line = e->paste_queue[0];
+        memmove(e->paste_queue, e->paste_queue + 1,
+                (e->paste_queue_count - 1) * sizeof(char *));
+        e->paste_queue_count--;
+        /* Show prompt + syntax-highlighted command, no extra whitespace */
+        if (prompt) {
+            write(STDOUT_FILENO, prompt, strlen(prompt));
+        }
+        VexStr hl = vstr_empty();
+        highlight_append(&hl, line, strlen(line));
+        write(STDOUT_FILENO, vstr_data(&hl), vstr_len(&hl));
+        vstr_free(&hl);
+        write(STDOUT_FILENO, "\r\n", 2);
+        /* Reset row tracking so next render doesn't move up spuriously */
+        e->old_row_count = 0;
+        return line;
+    }
+
     if (!isatty(STDIN_FILENO)) {
 
         static char line[4096];
@@ -1668,6 +1712,82 @@ char *edit_readline(EditState *e, const char *prompt) {
         if (key == -1) {
             edit_disable_raw(e);
             return NULL;
+        }
+
+        if (key == KEY_PASTE_START) {
+            e->in_paste = true;
+            continue;
+        }
+        if (key == KEY_PASTE_END) {
+            e->in_paste = false;
+            /* Split pasted content on newlines: execute first line, queue rest */
+            if (e->buf.len > 0) {
+                /* Count newlines in buffer */
+                size_t nl_count = 0;
+                for (size_t i = 0; i < e->buf.len; i++) {
+                    if (e->buf.buf[i] == '\n') nl_count++;
+                }
+                if (nl_count > 0) {
+                    /* Split into lines and queue extras */
+                    char *text = strdup(e->buf.buf);
+                    char *saveptr = NULL;
+                    char *line = strtok_r(text, "\n", &saveptr);
+                    char *first_line = NULL;
+                    if (line) {
+                        /* Strip leading whitespace */
+                        while (*line == ' ' || *line == '\t') line++;
+                        first_line = strdup(line);
+                        buf_clear(&e->buf);
+                        buf_set(&e->buf, first_line);
+                        e->buf.pos = e->buf.len;
+                    }
+                    /* Queue remaining lines */
+                    while ((line = strtok_r(NULL, "\n", &saveptr)) != NULL) {
+                        /* Strip leading whitespace */
+                        while (*line == ' ' || *line == '\t') line++;
+                        if (line[0] == '\0') continue;
+                        if (e->paste_queue_count >= e->paste_queue_cap) {
+                            e->paste_queue_cap = e->paste_queue_cap ? e->paste_queue_cap * 2 : 8;
+                            e->paste_queue = realloc(e->paste_queue,
+                                                     e->paste_queue_cap * sizeof(char *));
+                        }
+                        e->paste_queue[e->paste_queue_count++] = strdup(line);
+                    }
+                    free(text);
+                    /* Auto-submit the first line, showing it on screen */
+                    if (e->vi_mode) vi_set_cursor_bar();
+                    edit_disable_raw(e);
+                    /* Clear current line and re-render prompt + highlighted first line */
+                    write(STDOUT_FILENO, "\r\033[K", 4);
+                    if (e->prompt)
+                        write(STDOUT_FILENO, e->prompt, strlen(e->prompt));
+                    if (first_line) {
+                        VexStr hl = vstr_empty();
+                        highlight_append(&hl, first_line, strlen(first_line));
+                        write(STDOUT_FILENO, vstr_data(&hl), vstr_len(&hl));
+                        vstr_free(&hl);
+                    }
+                    write(STDOUT_FILENO, "\r\n", 2);
+                    e->old_row_count = 0;
+                    if (e->vi_mode) e->vi_insert = true;
+                    char *result = first_line ? first_line : strdup("");
+                    return result;
+                }
+            }
+            render(e);
+            continue;
+        }
+
+        /* During paste, insert chars directly including newlines */
+        if (e->in_paste) {
+            if (key == KEY_ENTER || key == '\n' || key == '\r') {
+                buf_insert_char(&e->buf, '\n');
+            } else if (key >= 32 && key < 127) {
+                buf_insert_char(&e->buf, (char)key);
+            } else if (key >= 128) {
+                buf_insert_char(&e->buf, (char)key);
+            }
+            continue;
         }
 
         if (key != KEY_TAB && key != KEY_SHIFT_TAB && e->completing) {
@@ -2414,6 +2534,7 @@ char *edit_readline(EditState *e, const char *prompt) {
                 e->buf.len = new_len;
                 e->buf.pos = e->comp_word_start + match_len;
                 e->buf.buf[e->buf.len] = '\0';
+                e->comp_word_len = match_len;
             }
             break;
 
