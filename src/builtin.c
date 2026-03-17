@@ -684,29 +684,48 @@ VexValue *builtin_ls(EvalCtx *ctx, VexValue *input, VexValue **args, size_t argc
     closedir(d);
 
     if (!ctx->in_pipeline) {
-        printf("\033[1m%-30s %-8s %12s  %-16s\033[0m\n",
-               "name", "type", "size", "modified");
+        /* Calculate max column widths */
+        size_t name_w = 4; /* "name" */
+        size_t size_w = 4; /* "size" */
+        char **size_strs = malloc(list->list.len * sizeof(char *));
+        for (size_t i = 0; i < list->list.len; i++) {
+            VexValue *rec = list->list.data[i];
+            VexValue *n = vval_record_get(rec, "name");
+            VexValue *sv = vval_record_get(rec, "size");
+            if (n) {
+                size_t w = strlen(vstr_data(&n->string));
+                if (w > name_w) name_w = w;
+            }
+            size_strs[i] = malloc(32);
+            format_size(sv ? sv->integer : 0, size_strs[i], 32);
+            size_t sw = strlen(size_strs[i]);
+            if (sw > size_w) size_w = sw;
+        }
+        name_w += 2;
+
+        printf("\033[1m%-*s %-6s %*s  %-16s\033[0m\n",
+               (int)name_w, "name", "type", (int)size_w, "size", "modified");
         for (size_t i = 0; i < list->list.len; i++) {
             VexValue *rec = list->list.data[i];
             VexValue *name = vval_record_get(rec, "name");
             VexValue *type = vval_record_get(rec, "type");
-            VexValue *size_val = vval_record_get(rec, "size");
             VexValue *mod = vval_record_get(rec, "modified");
 
-            char sizebuf[32];
             const char *type_str = vstr_data(&type->string);
             bool is_dir = strcmp(type_str, "dir") == 0;
 
             if (is_dir)
-                printf("\033[1;34m%-30s\033[0m ", vstr_data(&name->string));
+                printf("\033[1;34m%-*s\033[0m ", (int)name_w, vstr_data(&name->string));
             else
-                printf("%-30s ", vstr_data(&name->string));
+                printf("%-*s ", (int)name_w, vstr_data(&name->string));
 
-            printf("%-8s %12s  %-16s\n",
+            printf("%-6s %*s  %-16s\n",
                    type_str,
-                   format_size(size_val->integer, sizebuf, sizeof(sizebuf)),
+                   (int)size_w, size_strs[i],
                    vstr_data(&mod->string));
+            free(size_strs[i]);
         }
+        free(size_strs);
     }
 
     return list;

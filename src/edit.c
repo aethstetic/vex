@@ -1135,6 +1135,7 @@ static char *extract_cmd_name(const char *buf, size_t word_start) {
 /* Trigger or cycle tab completion: gather matches on first call, cycle on subsequent */
 static void do_complete(EditState *e) {
     if (!e->completing) {
+        comp_free(e);
 
         size_t word_start = find_word_start(e->buf.buf, e->buf.pos);
         const char *word = e->buf.buf + word_start;
@@ -1217,12 +1218,17 @@ static void do_complete(EditState *e) {
                 gather_dir_completions(e, word, word_len);
                 break;
             case COMP_CTX_FILES:
+                gather_file_completions(e, word, word_len);
+                break;
             case COMP_CTX_GENERIC:
                 gather_file_completions(e, word, word_len);
                 break;
             case COMP_CTX_WORDS: {
                 char *cmd = extract_cmd_name(e->buf.buf, word_start);
                 gather_word_completions(e, word, word_len, cmd);
+                /* Fall back to file completions if no word matches */
+                if (e->comp_count == 0)
+                    gather_file_completions(e, word, word_len);
                 break;
             }
             case COMP_CTX_COMMANDS:
