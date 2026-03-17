@@ -6,6 +6,7 @@
 #include <dirent.h>
 #include <sys/stat.h>
 #include <strings.h>
+#include <glob.h>
 
 static struct termios orig_termios;
 static bool termios_saved = false;
@@ -1297,6 +1298,183 @@ have_completions:
     e->comp_word_len = match_len;
 }
 
+static const char *format_preview_size(off_t size, char *buf, size_t buflen) {
+    if (size >= 1073741824)
+        snprintf(buf, buflen, "%.1f GB", (double)size / 1073741824.0);
+    else if (size >= 1048576)
+        snprintf(buf, buflen, "%.1f MB", (double)size / 1048576.0);
+    else if (size >= 1024)
+        snprintf(buf, buflen, "%.1f KB", (double)size / 1024.0);
+    else
+        snprintf(buf, buflen, "%ld B", (long)size);
+    return buf;
+}
+
+/* Generate inline preview for destructive commands */
+static void get_command_preview(const char *buf, size_t len, VexStr *preview) {
+    if (len == 0) return;
+
+    /* Skip leading whitespace */
+    const char *p = buf;
+    while (*p == ' ' || *p == '\t') p++;
+
+    bool is_rm = (strncmp(p, "rm ", 3) == 0);
+    bool is_mv = (strncmp(p, "mv ", 3) == 0);
+    bool is_cp = (strncmp(p, "cp ", 3) == 0);
+
+    if (!is_rm && !is_mv && !is_cp) return;
+    p += 3;
+    while (*p == ' ') p++;
+    if (*p == '\0') return;
+
+    /* Skip flags */
+    while (*p == '-') {
+        while (*p && *p != ' ') p++;
+        while (*p == ' ') p++;
+    }
+    if (*p == '\0') return;
+
+    if (is_rm) {
+        /* Collect all args and expand globs */
+        glob_t gl;
+        memset(&gl, 0, sizeof(gl));
+        int first = 1;
+
+        const char *arg = p;
+        while (*arg) {
+            while (*arg == ' ') arg++;
+            if (*arg == '\0') break;
+            const char *end = arg;
+            while (*end && *end != ' ') end++;
+
+            char pattern[4096];
+            size_t plen = (size_t)(end - arg);
+            if (plen >= sizeof(pattern)) plen = sizeof(pattern) - 1;
+            memcpy(pattern, arg, plen);
+            pattern[plen] = '\0';
+
+            int flags = GLOB_NOCHECK;
+            if (!first) flags |= GLOB_APPEND;
+            glob(pattern, flags, NULL, &gl);
+            first = 0;
+            arg = end;
+        }
+
+        if (gl.gl_pathc == 0) {
+            globfree(&gl);
+            return;
+        }
+
+        /* Check which paths actually exist and sum sizes */
+        size_t file_count = 0;
+        size_t dir_count = 0;
+        off_t total_size = 0;
+        VexStr names = vstr_empty();
+
+        for (size_t i = 0; i < gl.gl_pathc; i++) {
+            struct stat st;
+            if (stat(gl.gl_pathv[i], &st) != 0) continue;
+
+            if (S_ISDIR(st.st_mode)) {
+                dir_count++;
+            } else {
+                file_count++;
+                total_size += st.st_size;
+            }
+
+            if (vstr_len(&names) > 0) vstr_append_cstr(&names, ", ");
+            const char *base = strrchr(gl.gl_pathv[i], '/');
+            vstr_append_cstr(&names, base ? base + 1 : gl.gl_pathv[i]);
+
+            /* Truncate if too many */
+            if (file_count + dir_count >= 8 && i + 1 < gl.gl_pathc) {
+                char more[32];
+                snprintf(more, sizeof(more), " +%zu more",
+                         gl.gl_pathc - i - 1);
+                vstr_append_cstr(&names, more);
+                /* Count remaining */
+                for (size_t j = i + 1; j < gl.gl_pathc; j++) {
+                    if (stat(gl.gl_pathv[j], &st) == 0) {
+                        if (S_ISDIR(st.st_mode)) dir_count++;
+                        else { file_count++; total_size += st.st_size; }
+                    }
+                }
+                break;
+            }
+        }
+        globfree(&gl);
+
+        if (file_count + dir_count == 0) {
+            vstr_free(&names);
+            return;
+        }
+
+        char sizebuf[32];
+        format_preview_size(total_size, sizebuf, sizeof(sizebuf));
+
+        vstr_append_cstr(preview, "\033[90m  trash: ");
+        vstr_append_str(preview, &names);
+        if (file_count > 0) {
+            char info[64];
+            snprintf(info, sizeof(info), " (%zu file%s, %s)",
+                     file_count, file_count == 1 ? "" : "s", sizebuf);
+            vstr_append_cstr(preview, info);
+        }
+        if (dir_count > 0) {
+            char info[64];
+            snprintf(info, sizeof(info), " (%zu dir%s — use rm -r)",
+                     dir_count, dir_count == 1 ? "" : "s");
+            vstr_append_cstr(preview, info);
+        }
+        vstr_append_cstr(preview, "\033[0m");
+        vstr_free(&names);
+
+    } else if (is_mv || is_cp) {
+        /* Extract src and dst */
+        const char *src_start = p;
+        while (*p && *p != ' ') p++;
+        size_t src_len = (size_t)(p - src_start);
+        while (*p == ' ') p++;
+        if (*p == '\0') return; /* no dest yet */
+
+        char src[4096], dst[4096];
+        if (src_len >= sizeof(src)) src_len = sizeof(src) - 1;
+        memcpy(src, src_start, src_len);
+        src[src_len] = '\0';
+
+        const char *dst_start = p;
+        while (*p && *p != ' ') p++;
+        size_t dst_len = (size_t)(p - dst_start);
+        if (dst_len >= sizeof(dst)) dst_len = sizeof(dst) - 1;
+        memcpy(dst, dst_start, dst_len);
+        dst[dst_len] = '\0';
+
+        struct stat st;
+        if (stat(src, &st) != 0) return;
+
+        char sizebuf[32];
+        format_preview_size(st.st_size, sizebuf, sizeof(sizebuf));
+
+        const char *src_base = strrchr(src, '/');
+        src_base = src_base ? src_base + 1 : src;
+        const char *dst_base = strrchr(dst, '/');
+        dst_base = dst_base ? dst_base + 1 : dst;
+
+        vstr_append_cstr(preview, "\033[90m  ");
+        vstr_append_cstr(preview, is_mv ? "move" : "copy");
+        vstr_append_cstr(preview, ": ");
+        vstr_append_cstr(preview, src_base);
+        vstr_append_cstr(preview, " -> ");
+        vstr_append_cstr(preview, dst_base);
+        if (!S_ISDIR(st.st_mode)) {
+            char info[64];
+            snprintf(info, sizeof(info), " (%s)", sizebuf);
+            vstr_append_cstr(preview, info);
+        }
+        vstr_append_cstr(preview, "\033[0m");
+    }
+}
+
 /* Redraw the entire line: prompt, syntax-highlighted input, hints, completion menu, and cursor */
 static void render(EditState *e) {
 
@@ -1358,6 +1536,25 @@ static void render(EditState *e) {
             vstr_append_cstr(&out, rmove);
             vstr_append_cstr(&out, e->rprompt);
         }
+    }
+
+    /* Inline preview for destructive commands */
+    size_t preview_rows = 0;
+    if (!e->completing && e->buf.len > 0) {
+        VexStr preview = vstr_empty();
+        get_command_preview(e->buf.buf, e->buf.len, &preview);
+        if (vstr_len(&preview) > 0) {
+            vstr_append_cstr(&out, "\n\r\033[K");
+            vstr_append_str(&out, &preview);
+            preview_rows = 1;
+        }
+        vstr_free(&preview);
+    }
+
+    if (preview_rows > 0) {
+        char move_up[32];
+        snprintf(move_up, sizeof(move_up), "\033[%zuA", preview_rows);
+        vstr_append_cstr(&out, move_up);
     }
 
     e->comp_menu_rows = 0;
