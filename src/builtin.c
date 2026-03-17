@@ -3,6 +3,10 @@
 #include <dirent.h>
 #include <sys/stat.h>
 #include <signal.h>
+#include <limits.h>
+
+/* realpath needs _XOPEN_SOURCE >= 500 or _GNU_SOURCE */
+extern char *realpath(const char *path, char *resolved_path);
 #include <time.h>
 #include <math.h>
 #include <ctype.h>
@@ -4711,6 +4715,8 @@ VexValue *builtin_mkdir(EvalCtx *ctx, VexValue *input,
     return vval_null();
 }
 
+static bool copy_file(const char *src, const char *dst);
+
 VexValue *builtin_rm(EvalCtx *ctx, VexValue *input,
                       VexValue **args, size_t argc) {
     (void)input;
@@ -4721,13 +4727,46 @@ VexValue *builtin_rm(EvalCtx *ctx, VexValue *input,
         vex_err("rm: missing operand");
         return vval_error("missing operand");
     }
+    time_t now = time(NULL);
+    const char *tdir = undo_get_trash_dir();
     for (size_t i = 0; i < argc; i++) {
         if (args[i]->type != VEX_VAL_STRING) continue;
         const char *path = vstr_data(&args[i]->string);
-        if (unlink(path) != 0) {
+
+        /* Resolve absolute path before moving */
+        char abs[4096];
+        if (!realpath(path, abs)) {
             vex_err("rm: %s: %s", path, strerror(errno));
             ctx->had_error = true;
             return vval_error(strerror(errno));
+        }
+
+        /* Build trash path */
+        const char *base = strrchr(abs, '/');
+        base = base ? base + 1 : abs;
+        char trash_path[4096];
+        snprintf(trash_path, sizeof(trash_path), "%s/%ld_%s", tdir, (long)now, base);
+
+        /* Move to trash instead of deleting */
+        if (rename(abs, trash_path) == 0) {
+            undo_push_rm(abs, trash_path, now);
+        } else if (errno == EXDEV) {
+            /* Cross-device: copy then unlink */
+            if (copy_file(abs, trash_path) && unlink(abs) == 0) {
+                undo_push_rm(abs, trash_path, now);
+            } else {
+                vex_err("rm: %s: %s", path, strerror(errno));
+                ctx->had_error = true;
+                return vval_error(strerror(errno));
+            }
+        } else {
+            /* Trash failed, fall back to permanent delete */
+            if (unlink(path) != 0) {
+                vex_err("rm: %s: %s", path, strerror(errno));
+                ctx->had_error = true;
+                return vval_error(strerror(errno));
+            }
+            vex_err("rm: warning: %s permanently deleted (could not move to trash)", path);
         }
     }
     return vval_null();
@@ -4765,6 +4804,10 @@ VexValue *builtin_cp(EvalCtx *ctx, VexValue *input,
         ctx->had_error = true;
         return vval_error(strerror(errno));
     }
+    /* Record for undo */
+    char abs_dst[4096];
+    if (realpath(dst, abs_dst))
+        undo_push_cp(abs_dst, time(NULL));
     return vval_null();
 }
 
@@ -4780,12 +4823,83 @@ VexValue *builtin_mv(EvalCtx *ctx, VexValue *input,
     }
     const char *src = vstr_data(&args[0]->string);
     const char *dst = vstr_data(&args[1]->string);
+    /* Resolve src absolute path before rename */
+    char abs_src[4096];
+    if (!realpath(src, abs_src)) {
+        vex_err("mv: %s: %s", src, strerror(errno));
+        ctx->had_error = true;
+        return vval_error(strerror(errno));
+    }
     if (rename(src, dst) != 0) {
         vex_err("mv: %s -> %s: %s", src, dst, strerror(errno));
         ctx->had_error = true;
         return vval_error(strerror(errno));
     }
+    /* Resolve dst absolute path after rename */
+    char abs_dst[4096];
+    if (realpath(dst, abs_dst))
+        undo_push_mv(abs_src, abs_dst, time(NULL));
     return vval_null();
+}
+
+VexValue *builtin_undo(EvalCtx *ctx, VexValue *input,
+                        VexValue **args, size_t argc) {
+    (void)ctx; (void)input; (void)args; (void)argc;
+    char msg[4096];
+    bool ok = undo_pop(msg, sizeof(msg));
+    if (msg[0]) printf("%s\n", msg);
+    return ok ? vval_null() : vval_error(msg);
+}
+
+VexValue *builtin_undo_list(EvalCtx *ctx, VexValue *input,
+                             VexValue **args, size_t argc) {
+    (void)ctx; (void)input; (void)args; (void)argc;
+    size_t count = undo_count();
+    if (count == 0) {
+        printf("no undoable operations\n");
+        return vval_null();
+    }
+
+    VexValue *list = vval_list();
+    time_t now = time(NULL);
+
+    for (size_t i = count; i > 0; i--) {
+        const UndoEntry *e = undo_get(i - 1);
+        if (!e) continue;
+
+        VexValue *rec = vval_record();
+        long ago = (long)(now - e->timestamp);
+        char age[64];
+        if (ago < 60) snprintf(age, sizeof(age), "%lds ago", ago);
+        else if (ago < 3600) snprintf(age, sizeof(age), "%ldm ago", ago / 60);
+        else snprintf(age, sizeof(age), "%ldh ago", ago / 3600);
+
+        const char *op = e->kind == UNDO_RM ? "rm" :
+                         e->kind == UNDO_MV ? "mv" : "cp";
+
+        vval_record_set(rec, "op", vval_string_cstr(op));
+
+        if (e->kind == UNDO_RM) {
+            vval_record_set(rec, "path", vval_string_cstr(e->original_path));
+        } else if (e->kind == UNDO_MV) {
+            char desc[8192];
+            snprintf(desc, sizeof(desc), "%s -> %s", e->original_path, e->dest_path);
+            vval_record_set(rec, "path", vval_string_cstr(desc));
+        } else {
+            vval_record_set(rec, "path", vval_string_cstr(e->dest_path));
+        }
+
+        vval_record_set(rec, "age", vval_string_cstr(age));
+        VexValue *op_v = vval_string_cstr(op);
+        VexValue *age_v = vval_string_cstr(age);
+        vval_release(op_v);
+        vval_release(age_v);
+
+        vval_list_push(list, rec);
+        vval_release(rec);
+    }
+
+    return list;
 }
 
 static int parse_key_name(const char *name) {
@@ -15085,6 +15199,8 @@ void builtins_init(void) {
     register_builtin("rm",       builtin_rm,       "rm <file...>",        "Remove files");
     register_builtin("cp",       builtin_cp,       "cp <src> <dst>",      "Copy a file");
     register_builtin("mv",       builtin_mv,       "mv <src> <dst>",      "Move/rename a file");
+    register_builtin("undo",     builtin_undo,     "undo",                "Undo last rm/mv/cp");
+    register_builtin("undo-list", builtin_undo_list, "undo-list",         "List undoable operations");
 
     register_builtin("getopts",  builtin_getopts,  "getopts <optstring> <var> [args...]", "Parse script options");
 

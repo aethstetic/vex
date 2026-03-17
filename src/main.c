@@ -904,6 +904,7 @@ static void repl(EvalCtx *ctx) {
 int main(int argc, char **argv) {
 
     builtins_init();
+    undo_init();
     plugin_api_init();
     job_init();
     EvalCtx ctx = eval_ctx_new();
@@ -1120,6 +1121,7 @@ int main(int argc, char **argv) {
     }
 
     eval_ctx_free(&ctx);
+    undo_free();
     plugin_cleanup();
     job_cleanup();
     return 0;
