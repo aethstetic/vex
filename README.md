@@ -10,6 +10,16 @@
   make
   sudo make install
   ```
+  
+  You can also install it through either: 
+  ```
+  yay:
+  yay -S vex-shell-git
+
+  paru:
+  paru -S vex-shell-git
+  ```
+
   To use as your login shell:
   ```
   echo /usr/local/bin/vex | sudo tee -a /etc/shells
