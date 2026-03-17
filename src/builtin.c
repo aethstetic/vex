@@ -7904,59 +7904,334 @@ VexValue *builtin_into_list(EvalCtx *ctx, VexValue *input, VexValue **args, size
     return result;
 }
 
+static int watch_get_term_cols(void) {
+    struct winsize ws;
+    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == 0 && ws.ws_col > 0)
+        return ws.ws_col;
+    return 80;
+}
+
+/* Render a list of records as a table, optionally highlighting diffs from prev */
+static void watch_render_table(VexValue *data, VexValue *prev) {
+    if (!data || data->type != VEX_VAL_LIST || vval_list_len(data) == 0) {
+        if (data) {
+            vval_print(data, stdout);
+            printf("\n");
+        }
+        return;
+    }
+
+    /* Check if it's a table (list of records) */
+    size_t data_len = vval_list_len(data);
+    bool is_table = true;
+    for (size_t i = 0; i < data_len; i++) {
+        VexValue *item = vval_list_get(data, i);
+        if (!item || item->type != VEX_VAL_RECORD) {
+            is_table = false;
+            break;
+        }
+    }
+
+    if (!is_table) {
+        vval_print(data, stdout);
+        printf("\n");
+        return;
+    }
+
+    /* Collect columns */
+    size_t col_cap = 32, col_count = 0;
+    char **cols = malloc(col_cap * sizeof(char *));
+
+    for (size_t i = 0; i < data_len; i++) {
+        VexValue *row = vval_list_get(data, i);
+        VexMapIter it = vmap_iter(&row->record);
+        const char *key;
+        void *val;
+        while (vmap_next(&it, &key, &val)) {
+            bool found = false;
+            for (size_t c = 0; c < col_count; c++) {
+                if (strcmp(cols[c], key) == 0) { found = true; break; }
+            }
+            if (!found) {
+                if (col_count >= col_cap) {
+                    col_cap *= 2;
+                    cols = realloc(cols, col_cap * sizeof(char *));
+                }
+                cols[col_count++] = strdup(key);
+            }
+        }
+    }
+
+    /* Build cells and measure widths */
+    size_t *widths = calloc(col_count, sizeof(size_t));
+    for (size_t c = 0; c < col_count; c++)
+        widths[c] = strlen(cols[c]);
+
+    size_t row_count = data_len;
+    char ***cells = malloc(row_count * sizeof(char **));
+    char ***prev_cells = NULL;
+    size_t prev_row_count = 0;
+
+    for (size_t i = 0; i < row_count; i++) {
+        cells[i] = malloc(col_count * sizeof(char *));
+        VexValue *row = vval_list_get(data, i);
+        for (size_t c = 0; c < col_count; c++) {
+            VexValue *v = vval_record_get(row, cols[c]);
+            if (v) {
+                VexStr s = vval_to_str(v);
+                cells[i][c] = strdup(vstr_data(&s));
+                vstr_free(&s);
+            } else {
+                cells[i][c] = strdup("");
+            }
+            size_t w = display_width_str(cells[i][c]);
+            if (w > widths[c]) widths[c] = w;
+        }
+    }
+
+    /* Build prev cells for diff */
+    if (prev && prev->type == VEX_VAL_LIST && vval_list_len(prev) > 0) {
+        prev_row_count = vval_list_len(prev);
+        prev_cells = malloc(prev_row_count * sizeof(char **));
+        for (size_t i = 0; i < prev_row_count; i++) {
+            prev_cells[i] = malloc(col_count * sizeof(char *));
+            VexValue *row = vval_list_get(prev, i);
+            for (size_t c = 0; c < col_count; c++) {
+                VexValue *v = (row->type == VEX_VAL_RECORD)
+                    ? vval_record_get(row, cols[c]) : NULL;
+                if (v) {
+                    VexStr s = vval_to_str(v);
+                    prev_cells[i][c] = strdup(vstr_data(&s));
+                    vstr_free(&s);
+                } else {
+                    prev_cells[i][c] = strdup("");
+                }
+            }
+        }
+    }
+
+    /* Cap column widths to fit terminal */
+    int term_cols = watch_get_term_cols();
+    size_t separators = col_count > 1 ? (col_count - 1) * 3 : 0; /* " | " */
+    size_t total_w = separators;
+    for (size_t c = 0; c < col_count; c++) total_w += widths[c];
+
+    if (total_w > (size_t)term_cols && col_count > 0) {
+        /* Shrink widest columns until it fits */
+        while (total_w > (size_t)term_cols) {
+            size_t widest = 0;
+            for (size_t c = 1; c < col_count; c++) {
+                if (widths[c] > widths[widest]) widest = c;
+            }
+            if (widths[widest] <= 3) break; /* can't shrink further */
+            size_t excess = total_w - (size_t)term_cols;
+            size_t shrink = excess < widths[widest] - 3 ? excess : widths[widest] - 3;
+            widths[widest] -= shrink;
+            total_w -= shrink;
+        }
+    }
+
+    /* Print header */
+    printf("\033[1m");
+    for (size_t c = 0; c < col_count; c++) {
+        if (c > 0) printf(" \033[90m|\033[0;1m ");
+        size_t hlen = strlen(cols[c]);
+        if (hlen <= widths[c]) {
+            printf("%s", cols[c]);
+            for (size_t p = hlen; p < widths[c]; p++) putchar(' ');
+        } else {
+            printf("%.*s..", (int)(widths[c] > 2 ? widths[c] - 2 : 0), cols[c]);
+        }
+    }
+    printf("\033[0m\n");
+
+    /* Separator */
+    printf("\033[90m");
+    for (size_t c = 0; c < col_count; c++) {
+        if (c > 0) printf("-+-");
+        for (size_t w = 0; w < widths[c]; w++) putchar('-');
+    }
+    printf("\033[0m\n");
+
+    /* Rows with diff highlighting */
+    for (size_t i = 0; i < row_count; i++) {
+        for (size_t c = 0; c < col_count; c++) {
+            if (c > 0) printf(" \033[90m|\033[0m ");
+
+            bool changed = false;
+            if (prev_cells && i < prev_row_count) {
+                if (strcmp(cells[i][c], prev_cells[i][c]) != 0)
+                    changed = true;
+            } else if (prev_cells && i >= prev_row_count) {
+                changed = true; /* new row */
+            }
+
+            size_t w = display_width_str(cells[i][c]);
+            if (w <= widths[c]) {
+                if (changed)
+                    printf("\033[1;33m%s\033[0m", cells[i][c]);
+                else
+                    printf("%s", cells[i][c]);
+                for (size_t p = w; p < widths[c]; p++) putchar(' ');
+            } else {
+                /* Truncate with ".." */
+                size_t max = widths[c] > 2 ? widths[c] - 2 : 0;
+                if (changed) printf("\033[1;33m");
+                printf("%.*s..", (int)max, cells[i][c]);
+                if (changed) printf("\033[0m");
+            }
+        }
+        putchar('\n');
+    }
+
+    /* Cleanup */
+    for (size_t i = 0; i < row_count; i++) {
+        for (size_t c = 0; c < col_count; c++) free(cells[i][c]);
+        free(cells[i]);
+    }
+    free(cells);
+    if (prev_cells) {
+        for (size_t i = 0; i < prev_row_count; i++) {
+            for (size_t c = 0; c < col_count; c++) free(prev_cells[i][c]);
+            free(prev_cells[i]);
+        }
+        free(prev_cells);
+    }
+    free(widths);
+    for (size_t c = 0; c < col_count; c++) free(cols[c]);
+    free(cols);
+}
+
+static volatile sig_atomic_t watch_interrupted = 0;
+static void watch_sigint_handler(int sig) { (void)sig; watch_interrupted = 1; }
+
 VexValue *builtin_watch(EvalCtx *ctx, VexValue *input, VexValue **args, size_t argc) {
-    (void)input;
     if (argc < 1) {
-        fprintf(stderr, "watch: expected command\nUsage: watch [-n secs] <command>\n");
+        fprintf(stderr, "watch: expected interval and closure or command\n"
+                "Usage: watch <interval> { closure }\n"
+                "       watch <interval> <command...>\n"
+                "       data | watch <interval> { closure }\n");
         return vval_null();
     }
+
+    /* Parse interval from first arg */
     double interval = 2.0;
     size_t cmd_start = 0;
 
-    if (argc >= 2 && args[0]->type == VEX_VAL_STRING &&
-        strcmp(vstr_data(&args[0]->string), "-n") == 0) {
-        if (args[1]->type == VEX_VAL_STRING)
-            interval = strtod(vstr_data(&args[1]->string), NULL);
-        else if (args[1]->type == VEX_VAL_INT)
-            interval = (double)args[1]->integer;
-        else if (args[1]->type == VEX_VAL_FLOAT)
-            interval = args[1]->floating;
-        cmd_start = 2;
+    if (args[0]->type == VEX_VAL_INT) {
+        interval = (double)args[0]->integer;
+        cmd_start = 1;
+    } else if (args[0]->type == VEX_VAL_FLOAT) {
+        interval = args[0]->floating;
+        cmd_start = 1;
+    } else if (args[0]->type == VEX_VAL_STRING) {
+        const char *s = vstr_data(&args[0]->string);
+        /* Parse duration strings: "2s", "500ms", "1.5s" */
+        char *end;
+        double val = strtod(s, &end);
+        if (end != s) {
+            if (*end == '\0' || strcmp(end, "s") == 0)
+                interval = val;
+            else if (strcmp(end, "ms") == 0)
+                interval = val / 1000.0;
+            else
+                interval = val;
+            cmd_start = 1;
+        } else if (strcmp(s, "-n") == 0 && argc >= 2) {
+            /* Legacy: watch -n 2 command */
+            if (args[1]->type == VEX_VAL_INT)
+                interval = (double)args[1]->integer;
+            else if (args[1]->type == VEX_VAL_FLOAT)
+                interval = args[1]->floating;
+            else if (args[1]->type == VEX_VAL_STRING)
+                interval = strtod(vstr_data(&args[1]->string), NULL);
+            cmd_start = 2;
+        }
     }
 
-    VexStr cmd = vstr_new("");
+    if (interval < 0.1) interval = 0.1;
+
+    /* Build command string from remaining args */
+    VexStr cmd = vstr_empty();
+
     for (size_t i = cmd_start; i < argc; i++) {
         if (i > cmd_start) vstr_append_char(&cmd, ' ');
         if (args[i]->type == VEX_VAL_STRING)
             vstr_append_cstr(&cmd, vstr_data(&args[i]->string));
     }
+    const char *display_cmd = vstr_data(&cmd);
 
-    while (1) {
+    /* Set up Ctrl+C handler */
+    watch_interrupted = 0;
+    struct sigaction sa, old_sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = watch_sigint_handler;
+    sa.sa_flags = 0;
+    sigemptyset(&sa.sa_mask);
+    sigaction(SIGINT, &sa, &old_sa);
+
+    VexValue *prev_result = NULL;
+
+    while (!watch_interrupted) {
+        /* Clear screen and print header */
         printf("\033[2J\033[H");
         time_t now = time(NULL);
-        printf("Every %.1fs: %s    %s", interval, vstr_data(&cmd), ctime(&now));
-        printf("\n");
+        char *timestr = ctime(&now);
+        if (timestr) {
+            size_t tlen = strlen(timestr);
+            if (tlen > 0 && timestr[tlen - 1] == '\n') timestr[tlen - 1] = '\0';
+        }
+        printf("\033[1mEvery %.1fs:\033[0m %s    \033[90m%s\033[0m\n\n",
+               interval, display_cmd, timestr ? timestr : "");
         fflush(stdout);
 
-        Parser p = parser_init(vstr_data(&cmd), ctx->arena);
-        ASTNode *node;
-        while ((node = parser_parse_line(&p))) {
-            VexValue *r = eval(ctx, node);
-            if (r) {
-                if (r->type != VEX_VAL_NULL) {
-                    vval_print(r, stdout);
-                    printf("\n");
-                }
-                vval_release(r);
+        VexValue *result = NULL;
+
+        if (vstr_len(&cmd) > 0) {
+            Parser p = parser_init(vstr_data(&cmd), ctx->arena);
+            ASTNode *node;
+            VexValue *last = NULL;
+            while ((node = parser_parse_line(&p))) {
+                if (last) vval_release(last);
+                last = eval(ctx, node);
             }
+            result = last;
         }
 
+        if (result && result->type != VEX_VAL_NULL) {
+            watch_render_table(result, prev_result);
+        }
+
+        if (prev_result) vval_release(prev_result);
+        prev_result = result; /* takes ownership of result's refcount */
+
+        fflush(stdout);
+
+        /* Interruptible sleep */
         struct timespec ts;
         ts.tv_sec = (time_t)interval;
         ts.tv_nsec = (long)((interval - (double)ts.tv_sec) * 1e9);
-        nanosleep(&ts, NULL);
+        while (!watch_interrupted) {
+            struct timespec rem;
+            int ret = nanosleep(&ts, &rem);
+            if (ret == 0) break;
+            if (errno == EINTR) {
+                if (watch_interrupted) break;
+                ts = rem;
+            } else break;
+        }
     }
+
+    if (prev_result) vval_release(prev_result);
     vstr_free(&cmd);
+
+    /* Restore signal handler */
+    sigaction(SIGINT, &old_sa, NULL);
+
+    /* Final clear to show clean exit */
+    printf("\033[2J\033[H");
+    fflush(stdout);
+
     return vval_null();
 }
 
@@ -14914,7 +15189,7 @@ void builtins_init(void) {
     register_builtin("into-bool",    builtin_into_bool,    "into-bool",             "Convert to boolean");
     register_builtin("into-record",  builtin_into_record,  "into-record",           "List of pairs to record");
     register_builtin("into-list",    builtin_into_list,    "into-list",             "Record to list of key-value pairs");
-    register_builtin("watch",        builtin_watch,        "watch [-n secs] <cmd>", "Re-run command periodically");
+    register_builtin("watch",        builtin_watch,        "watch <interval> { closure }", "Live-updating structured data view");
     register_builtin("config",       builtin_config_cmd,   "config [--edit]",       "Show/edit shell config paths");
     register_builtin("version",      builtin_version,      "version",               "Shell version info");
 
