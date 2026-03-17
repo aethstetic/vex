@@ -539,7 +539,7 @@ static char *build_rprompt(EvalCtx *ctx, int last_exit_code) {
     if (custom) {
         return format_prompt(custom, last_exit_code);
     }
-    return format_prompt("%{dim}%t%{reset}", last_exit_code);
+    return strdup("");
 }
 
 /* Read and execute a .vex script file, statement by statement */

@@ -5,6 +5,7 @@
 #include <signal.h>
 #include <dirent.h>
 #include <sys/stat.h>
+#include <strings.h>
 
 static struct termios orig_termios;
 static bool termios_saved = false;
@@ -799,7 +800,8 @@ static CompCtx get_comp_context(const char *buf, size_t word_start) {
     cmd[clen] = '\0';
 
     if (strcmp(cmd, "cd") == 0 || strcmp(cmd, "j") == 0 ||
-        strcmp(cmd, "ji") == 0 || strcmp(cmd, "mkdir") == 0)
+        strcmp(cmd, "ji") == 0 || strcmp(cmd, "mkdir") == 0 ||
+        strcmp(cmd, "pushd") == 0 || strcmp(cmd, "rmdir") == 0)
         return COMP_CTX_DIRS;
 
     if (strcmp(cmd, "open") == 0 || strcmp(cmd, "save") == 0 ||
@@ -865,7 +867,7 @@ static void gather_file_completions(EditState *e, const char *prefix, size_t pre
         if (ent->d_name[0] == '.' && name_prefix_len == 0) continue;
         if (ent->d_name[0] == '.' && name_prefix[0] != '.') continue;
         if (name_prefix_len > 0 &&
-            strncmp(ent->d_name, name_prefix, name_prefix_len) != 0) continue;
+            strncasecmp(ent->d_name, name_prefix, name_prefix_len) != 0) continue;
 
         if (!comp_ensure_cap(e, &cap)) break;
 
@@ -926,7 +928,7 @@ static void gather_dir_completions(EditState *e, const char *prefix, size_t pref
         if (ent->d_name[0] == '.' && name_prefix_len == 0) continue;
         if (ent->d_name[0] == '.' && name_prefix[0] != '.') continue;
         if (name_prefix_len > 0 &&
-            strncmp(ent->d_name, name_prefix, name_prefix_len) != 0) continue;
+            strncasecmp(ent->d_name, name_prefix, name_prefix_len) != 0) continue;
 
         char full[4096];
         snprintf(full, sizeof(full), "%s/%s", dir, ent->d_name);
@@ -964,7 +966,7 @@ static void gather_command_completions(EditState *e, const char *prefix, size_t 
     };
 
     for (int i = 0; keywords[i]; i++) {
-        if (strncmp(keywords[i], prefix, prefix_len) == 0 &&
+        if (strncasecmp(keywords[i], prefix, prefix_len) == 0 &&
             strlen(keywords[i]) > prefix_len) {
             if (!comp_ensure_cap(e, &cap)) break;
             e->comp_matches[e->comp_count++] = strdup(keywords[i]);
@@ -974,7 +976,7 @@ static void gather_command_completions(EditState *e, const char *prefix, size_t 
     size_t bc = builtin_count();
     for (size_t i = 0; i < bc; i++) {
         const char *name = builtin_name(i);
-        if (strncmp(name, prefix, prefix_len) == 0 &&
+        if (strncasecmp(name, prefix, prefix_len) == 0 &&
             strlen(name) > prefix_len) {
             if (!comp_ensure_cap(e, &cap)) break;
             e->comp_matches[e->comp_count++] = strdup(name);
@@ -984,7 +986,7 @@ static void gather_command_completions(EditState *e, const char *prefix, size_t 
     size_t pc = plugin_cmd_count();
     for (size_t i = 0; i < pc; i++) {
         const char *name = plugin_cmd_name(i);
-        if (name && strncmp(name, prefix, prefix_len) == 0 &&
+        if (name && strncasecmp(name, prefix, prefix_len) == 0 &&
             strlen(name) > prefix_len) {
             if (!comp_ensure_cap(e, &cap)) break;
             e->comp_matches[e->comp_count++] = strdup(name);
@@ -994,7 +996,7 @@ static void gather_command_completions(EditState *e, const char *prefix, size_t 
     size_t sc = script_cmd_count();
     for (size_t i = 0; i < sc; i++) {
         const char *name = script_cmd_name(i);
-        if (name && strncmp(name, prefix, prefix_len) == 0 &&
+        if (name && strncasecmp(name, prefix, prefix_len) == 0 &&
             strlen(name) > prefix_len) {
             if (!comp_ensure_cap(e, &cap)) break;
             e->comp_matches[e->comp_count++] = strdup(name);
@@ -1013,7 +1015,7 @@ static void gather_command_completions(EditState *e, const char *prefix, size_t 
             while ((ent = readdir(pd)) != NULL) {
                 if (ent->d_name[0] == '.') continue;
                 if (prefix_len > 0 &&
-                    strncmp(ent->d_name, prefix, prefix_len) != 0) continue;
+                    strncasecmp(ent->d_name, prefix, prefix_len) != 0) continue;
                 if (strlen(ent->d_name) <= prefix_len) continue;
 
                 char full[4096];
@@ -1084,7 +1086,7 @@ static void gather_word_completions(EditState *e, const char *prefix, size_t pre
     e->comp_matches = malloc(cap * sizeof(char *));
 
     for (size_t i = 0; i < count; i++) {
-        if (prefix_len > 0 && strncmp(words[i], prefix, prefix_len) != 0) continue;
+        if (prefix_len > 0 && strncasecmp(words[i], prefix, prefix_len) != 0) continue;
         if (strlen(words[i]) <= prefix_len) continue;
         if (!comp_ensure_cap(e, &cap)) break;
         e->comp_matches[e->comp_count++] = strdup(words[i]);
