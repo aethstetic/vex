@@ -5,7 +5,7 @@
 #include <time.h>
 #include <pwd.h>
 
-#define VEX_VERSION "0.1.0"
+#define VEX_VERSION "0.1.2"
 
 static char *get_history_path(void) {
     const char *home = getenv("HOME");
