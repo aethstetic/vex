@@ -414,9 +414,18 @@ VexValue *builtin_cd(EvalCtx *ctx, VexValue *input, VexValue **args, size_t argc
             free(paths);
         }
         if (!found) {
-            vex_err("cd: %s: %s", dir, strerror(errno));
+            /* Frecency fallback: try fuzzy directory jump */
+            char *fpath = frecency_find(dir);
+            if (fpath && chdir(fpath) == 0) {
+                frecency_add(fpath);
+                free(fpath);
+                hooks_run_chpwd(ctx);
+                return vval_null();
+            }
+            free(fpath);
+            vex_err("cd: %s: No such file or directory", dir);
             ctx->had_error = true;
-            return vval_error(strerror(errno));
+            return vval_error("No such file or directory");
         }
     } else {
 
