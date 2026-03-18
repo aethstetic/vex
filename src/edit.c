@@ -1083,6 +1083,14 @@ static void gather_word_completions(EditState *e, const char *prefix, size_t pre
     size_t count = comp_spec_get_words(cmd_name, &words);
     if (count == 0) return;
 
+    /* If spec is mostly flags, only show them when prefix starts with '-' */
+    size_t flag_count = 0;
+    for (size_t i = 0; i < count; i++)
+        if (words[i][0] == '-') flag_count++;
+    bool mostly_flags = (flag_count > count / 2);
+    if (mostly_flags && prefix_len > 0 && prefix[0] != '-')
+        return;
+
     size_t cap = 32;
     e->comp_matches = malloc(cap * sizeof(char *));
 
