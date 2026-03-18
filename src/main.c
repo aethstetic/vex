@@ -827,11 +827,20 @@ static void repl(EvalCtx *ctx) {
         }
 
         hooks_run_precmd(ctx);
+
         char *prompt = build_prompt(ctx, ctx->last_exit_code);
         free(editor.rprompt);
         editor.rprompt = build_rprompt(ctx, ctx->last_exit_code);
         editor.rprompt_width = display_width(editor.rprompt);
+
+        /* OSC 133;A — prompt start (before prompt is drawn) */
+        write(STDOUT_FILENO, "\033]133;A\007", 8);
+
         char *line = edit_readline(&editor, prompt);
+
+        /* OSC 133;B — command start (after prompt, user hit enter) */
+        write(STDOUT_FILENO, "\033]133;B\007", 8);
+
         free(prompt);
 
         if (!line) {
@@ -865,11 +874,22 @@ static void repl(EvalCtx *ctx) {
             }
         }
 
+        /* OSC 133;C — mark command execution start */
+        write(STDOUT_FILENO, "\033]133;C\007", 8);
+
         ctx->had_error = false;
         hooks_run_preexec(ctx, line);
         cmd_timer_start();
         run_command(ctx, line);
         cmd_timer_stop();
+
+        /* OSC 133;D — mark command finished with exit code */
+        {
+            char osc_d[32];
+            int osc_len = snprintf(osc_d, sizeof(osc_d),
+                                   "\033]133;D;%d\007", ctx->last_exit_code);
+            write(STDOUT_FILENO, osc_d, (size_t)osc_len);
+        }
 
         {
             VexValue *dur = vval_float(last_cmd_duration_ms);
