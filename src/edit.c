@@ -1088,7 +1088,7 @@ static void gather_word_completions(EditState *e, const char *prefix, size_t pre
     for (size_t i = 0; i < count; i++)
         if (words[i][0] == '-') flag_count++;
     bool mostly_flags = (flag_count > count / 2);
-    if (mostly_flags && prefix_len > 0 && prefix[0] != '-')
+    if (mostly_flags && (prefix_len == 0 || prefix[0] != '-'))
         return;
 
     size_t cap = 32;
