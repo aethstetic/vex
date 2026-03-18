@@ -20,18 +20,33 @@ static char *get_history_path(void) {
 /* Walk up directory tree to find the nearest .git directory */
 static const char *find_git_dir(void) {
     static char git_dir[4096];
+    static char cached_cwd[4096];
+    static bool has_cached = false;
+    static bool cached_found = false;
+
     char cwd[4096];
     if (!getcwd(cwd, sizeof(cwd))) return NULL;
+
+    /* Return cached result if cwd hasn't changed */
+    if (has_cached && strcmp(cwd, cached_cwd) == 0)
+        return cached_found ? git_dir : NULL;
+
+    memcpy(cached_cwd, cwd, sizeof(cached_cwd));
+    has_cached = true;
 
     char *dir = cwd;
     while (dir[0]) {
         snprintf(git_dir, sizeof(git_dir), "%s/.git", dir);
         struct stat st;
-        if (stat(git_dir, &st) == 0) return git_dir;
+        if (stat(git_dir, &st) == 0) {
+            cached_found = true;
+            return git_dir;
+        }
         char *slash = strrchr(dir, '/');
         if (!slash || slash == dir) break;
         *slash = '\0';
     }
+    cached_found = false;
     return NULL;
 }
 
@@ -82,7 +97,7 @@ static const char *get_git_status(void) {
         clock_gettime(CLOCK_MONOTONIC, &now);
         double elapsed = (now.tv_sec - last_check.tv_sec)
                        + (now.tv_nsec - last_check.tv_nsec) / 1e9;
-        if (elapsed < 2.0 && strcmp(cwd, last_cwd) == 0)
+        if (elapsed < 10.0 && strcmp(cwd, last_cwd) == 0)
             return status;
     }
 

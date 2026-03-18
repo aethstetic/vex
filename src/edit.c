@@ -953,6 +953,70 @@ static void gather_dir_completions(EditState *e, const char *prefix, size_t pref
     closedir(d);
 }
 
+/* Cached PATH command list */
+static char **path_cmd_cache = NULL;
+static size_t path_cmd_count = 0;
+static char *path_cmd_env = NULL; /* cached PATH string to detect changes */
+
+static void path_cache_rebuild(void) {
+    /* Free old cache */
+    for (size_t i = 0; i < path_cmd_count; i++)
+        free(path_cmd_cache[i]);
+    free(path_cmd_cache);
+    free(path_cmd_env);
+
+    path_cmd_count = 0;
+    size_t cap = 256;
+    path_cmd_cache = malloc(cap * sizeof(char *));
+
+    const char *path_env = getenv("PATH");
+    path_cmd_env = path_env ? strdup(path_env) : NULL;
+    if (!path_env) return;
+
+    char *path_copy = strdup(path_env);
+    char *saveptr = NULL;
+    for (char *dir = strtok_r(path_copy, ":", &saveptr); dir;
+         dir = strtok_r(NULL, ":", &saveptr)) {
+        DIR *pd = opendir(dir);
+        if (!pd) continue;
+        struct dirent *ent;
+        while ((ent = readdir(pd)) != NULL) {
+            if (ent->d_name[0] == '.') continue;
+
+            /* Check executable */
+            char full[4096];
+            snprintf(full, sizeof(full), "%s/%s", dir, ent->d_name);
+            if (access(full, X_OK) != 0) continue;
+
+            /* Deduplicate */
+            bool dup = false;
+            for (size_t i = 0; i < path_cmd_count; i++) {
+                if (strcmp(path_cmd_cache[i], ent->d_name) == 0) {
+                    dup = true; break;
+                }
+            }
+            if (dup) continue;
+
+            if (path_cmd_count >= cap) {
+                cap *= 2;
+                path_cmd_cache = realloc(path_cmd_cache, cap * sizeof(char *));
+            }
+            path_cmd_cache[path_cmd_count++] = strdup(ent->d_name);
+        }
+        closedir(pd);
+    }
+    free(path_copy);
+}
+
+static void path_cache_ensure(void) {
+    const char *current = getenv("PATH");
+    if (!path_cmd_cache ||
+        (current && (!path_cmd_env || strcmp(current, path_cmd_env) != 0)) ||
+        (!current && path_cmd_env)) {
+        path_cache_rebuild();
+    }
+}
+
 static void gather_command_completions(EditState *e, const char *prefix, size_t prefix_len) {
     if (prefix_len == 0) return;
 
@@ -1004,40 +1068,23 @@ static void gather_command_completions(EditState *e, const char *prefix, size_t 
         }
     }
 
-    const char *path_env = getenv("PATH");
-    if (path_env) {
-        char *path_copy = strdup(path_env);
-        char *saveptr = NULL;
-        for (char *dir = strtok_r(path_copy, ":", &saveptr); dir;
-             dir = strtok_r(NULL, ":", &saveptr)) {
-            DIR *pd = opendir(dir);
-            if (!pd) continue;
-            struct dirent *ent;
-            while ((ent = readdir(pd)) != NULL) {
-                if (ent->d_name[0] == '.') continue;
-                if (prefix_len > 0 &&
-                    strncasecmp(ent->d_name, prefix, prefix_len) != 0) continue;
-                if (strlen(ent->d_name) <= prefix_len) continue;
+    /* Use cached PATH commands instead of scanning every time */
+    path_cache_ensure();
+    for (size_t i = 0; i < path_cmd_count; i++) {
+        const char *name = path_cmd_cache[i];
+        if (strncasecmp(name, prefix, prefix_len) != 0) continue;
+        if (strlen(name) <= prefix_len) continue;
 
-                char full[4096];
-                snprintf(full, sizeof(full), "%s/%s", dir, ent->d_name);
-                if (access(full, X_OK) != 0) continue;
-
-                bool dup = false;
-                for (size_t i = 0; i < e->comp_count; i++) {
-                    if (strcmp(e->comp_matches[i], ent->d_name) == 0) {
-                        dup = true;
-                        break;
-                    }
-                }
-                if (dup) continue;
-
-                if (!comp_ensure_cap(e, &cap)) break;
-                e->comp_matches[e->comp_count++] = strdup(ent->d_name);
+        bool dup = false;
+        for (size_t j = 0; j < e->comp_count; j++) {
+            if (strcmp(e->comp_matches[j], name) == 0) {
+                dup = true; break;
             }
-            closedir(pd);
         }
-        free(path_copy);
+        if (dup) continue;
+
+        if (!comp_ensure_cap(e, &cap)) break;
+        e->comp_matches[e->comp_count++] = strdup(name);
     }
 
     DIR *d = opendir(".");

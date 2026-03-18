@@ -1362,7 +1362,7 @@ static VexValue *eval_node(EvalCtx *ctx, ASTNode *node) {
             suggest_command(node->call.cmd_name);
             ctx->had_error = true;
             ctx->last_exit_code = 127;
-            return vval_error("command not found");
+            return vval_null();
         }
         free(ext_path);
 
@@ -1391,7 +1391,7 @@ static VexValue *eval_node(EvalCtx *ctx, ASTNode *node) {
             suggest_command(node->call.cmd_name);
             ctx->had_error = true;
             ctx->last_exit_code = 127;
-            return vval_error("command not found");
+            return vval_null();
         }
         free(ext_path);
 
