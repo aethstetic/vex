@@ -1,5 +1,6 @@
 CC      = cc
-CFLAGS  = -std=c11 -Wall -Wextra -Wpedantic -D_POSIX_C_SOURCE=200809L -Iinclude
+CFLAGS  = -std=c11 -Wall -Wextra -Wpedantic -D_POSIX_C_SOURCE=200809L -Iinclude \
+          -Wno-format-truncation -Wno-unused-function -Wno-unused-parameter -Wno-stringop-truncation
 LDFLAGS = -ldl -lm
 
 SRC = src/main.c \
