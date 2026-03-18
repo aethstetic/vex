@@ -92,11 +92,12 @@ static ASTNode *node_new(Parser *p, ASTKind kind) {
 static bool is_bare_word_token(TokenType t) {
     switch (t) {
     case TOK_IDENT: case TOK_INT: case TOK_FLOAT:
-    case TOK_DOT: case TOK_SLASH: case TOK_STAR:
+    case TOK_DOT: case TOK_DOTDOT: case TOK_SLASH: case TOK_STAR:
     case TOK_MINUS: case TOK_COLON: case TOK_QUESTION:
     case TOK_PERCENT: case TOK_PLUS: case TOK_CARET:
     case TOK_NOT: case TOK_TILDE:
     case TOK_LBRACE: case TOK_RBRACE: case TOK_COMMA:
+    case TOK_ASSIGN:
         return true;
     default:
         return false;
@@ -1050,6 +1051,8 @@ static ASTNode *parse_command(Parser *p) {
 
     if (strcmp(n->call.cmd_name, "ls") == 0 ||
         strcmp(n->call.cmd_name, "cd") == 0 ||
+        strcmp(n->call.cmd_name, "j") == 0 ||
+        strcmp(n->call.cmd_name, "ji") == 0 ||
         strcmp(n->call.cmd_name, "complete") == 0 ||
         strcmp(n->call.cmd_name, "alias") == 0 ||
         strcmp(n->call.cmd_name, "export") == 0 ||
