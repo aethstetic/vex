@@ -1778,7 +1778,6 @@ VexValue *builtin_j(EvalCtx *ctx, VexValue *input, VexValue **args, size_t argc)
 
     frecency_add(path);
     hooks_run_chpwd(ctx);
-    printf("%s\n", path);
     VexValue *result = vval_string_cstr(path);
     free(path);
     return result;
