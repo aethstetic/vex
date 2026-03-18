@@ -1001,8 +1001,11 @@ int main(int argc, char **argv) {
                     fprintf(f, "# export VEX_EDIT_MODE \"emacs\"\n\n");
 
                     fprintf(f, "# Aliases\n");
-                    fprintf(f, "# alias ll ls -la\n");
-                    fprintf(f, "# alias la ls -a\n\n");
+                    fprintf(f, "# alias ll = ls -la\n");
+                    fprintf(f, "# alias la = ls -a\n");
+                    fprintf(f, "# alias g = git\n");
+                    fprintf(f, "# alias gs = git status\n");
+                    fprintf(f, "# alias gp = git push\n\n");
 
                     fprintf(f, "# Plugins\n");
                     fprintf(f, "# use plugin \"hello_plugin.so\"\n");
