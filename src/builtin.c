@@ -3752,6 +3752,158 @@ int comp_spec_get_kind(const char *cmd) {
     return (int)spec->kind;
 }
 
+/* Track commands we've already tried --help on */
+#define HELP_TRIED_MAX 256
+static char *help_tried[HELP_TRIED_MAX];
+static size_t help_tried_count = 0;
+
+static bool help_already_tried(const char *cmd) {
+    for (size_t i = 0; i < help_tried_count; i++)
+        if (strcmp(help_tried[i], cmd) == 0) return true;
+    return false;
+}
+
+static void help_mark_tried(const char *cmd) {
+    if (help_tried_count < HELP_TRIED_MAX)
+        help_tried[help_tried_count++] = strdup(cmd);
+}
+
+/* Run "cmd --help" and capture stdout+stderr, with timeout */
+static char *run_help_capture(const char *cmd_path) {
+    int pipefd[2];
+    if (pipe(pipefd) != 0) return NULL;
+
+    pid_t pid = fork();
+    if (pid < 0) {
+        close(pipefd[0]);
+        close(pipefd[1]);
+        return NULL;
+    }
+
+    if (pid == 0) {
+        /* Child */
+        close(pipefd[0]);
+        dup2(pipefd[1], STDOUT_FILENO);
+        dup2(pipefd[1], STDERR_FILENO);
+        close(pipefd[1]);
+
+        /* Close stdin to prevent interactive prompts */
+        int devnull = open("/dev/null", O_RDONLY);
+        if (devnull >= 0) { dup2(devnull, STDIN_FILENO); close(devnull); }
+
+        /* Timeout: kill self after 2 seconds */
+        alarm(2);
+
+        execlp(cmd_path, cmd_path, "--help", (char *)NULL);
+        _exit(127);
+    }
+
+    /* Parent */
+    close(pipefd[1]);
+
+    /* Read up to 64KB */
+    size_t cap = 4096, len = 0;
+    char *buf = malloc(cap);
+
+    for (;;) {
+        if (len + 1024 > cap) {
+            cap *= 2;
+            if (cap > 65536) break;
+            buf = realloc(buf, cap);
+        }
+        ssize_t n = read(pipefd[0], buf + len, cap - len - 1);
+        if (n <= 0) break;
+        len += (size_t)n;
+    }
+    close(pipefd[0]);
+    buf[len] = '\0';
+
+    /* Reap child */
+    int status;
+    waitpid(pid, &status, 0);
+
+    /* If no output, try -h */
+    if (len == 0) {
+        free(buf);
+
+        if (pipe(pipefd) != 0) return NULL;
+        pid = fork();
+        if (pid < 0) { close(pipefd[0]); close(pipefd[1]); return NULL; }
+
+        if (pid == 0) {
+            close(pipefd[0]);
+            dup2(pipefd[1], STDOUT_FILENO);
+            dup2(pipefd[1], STDERR_FILENO);
+            close(pipefd[1]);
+            int devnull = open("/dev/null", O_RDONLY);
+            if (devnull >= 0) { dup2(devnull, STDIN_FILENO); close(devnull); }
+            alarm(2);
+            execlp(cmd_path, cmd_path, "-h", (char *)NULL);
+            _exit(127);
+        }
+
+        close(pipefd[1]);
+        cap = 4096; len = 0;
+        buf = malloc(cap);
+        for (;;) {
+            if (len + 1024 > cap) {
+                cap *= 2;
+                if (cap > 65536) break;
+                buf = realloc(buf, cap);
+            }
+            ssize_t n = read(pipefd[0], buf + len, cap - len - 1);
+            if (n <= 0) break;
+            len += (size_t)n;
+        }
+        close(pipefd[0]);
+        buf[len] = '\0';
+        waitpid(pid, &status, 0);
+    }
+
+    if (len == 0) { free(buf); return NULL; }
+    return buf;
+}
+
+bool comp_spec_try_help(const char *cmd) {
+    if (help_already_tried(cmd)) return false;
+    help_mark_tried(cmd);
+
+    /* Don't try for builtins — they already have specs */
+    if (builtin_exists(cmd)) return false;
+
+    char *path = find_in_path(cmd);
+    if (!path) return false;
+
+    char *help_text = run_help_capture(path);
+    free(path);
+    if (!help_text) return false;
+
+    HelpParseResult *parsed = help_parse_flags(help_text);
+    free(help_text);
+
+    if (!parsed || parsed->count == 0) {
+        help_parse_free(parsed);
+        return false;
+    }
+
+    /* Register as a comp_spec */
+    if (comp_spec_count < 256) {
+        char **words = malloc((parsed->count + 1) * sizeof(char *));
+        for (size_t i = 0; i < parsed->count; i++)
+            words[i] = strdup(parsed->flags[i].flag);
+        words[parsed->count] = NULL;
+
+        comp_specs[comp_spec_count].cmd_name = strdup(cmd);
+        comp_specs[comp_spec_count].kind = COMP_KIND_WORDS;
+        comp_specs[comp_spec_count].words = words;
+        comp_specs[comp_spec_count].word_count = parsed->count;
+        comp_spec_count++;
+    }
+
+    help_parse_free(parsed);
+    return true;
+}
+
 #define MAX_COMP_CALLBACKS 64
 static struct {
     char *command;

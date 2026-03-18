@@ -21,7 +21,8 @@ SRC = src/main.c \
       src/frecency.c \
       src/plugin.c \
       src/job.c \
-      src/undo.c
+      src/undo.c \
+      src/help_parse.c
 
 OBJ = $(SRC:.c=.o)
 BIN = vex

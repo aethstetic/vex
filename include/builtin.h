@@ -105,6 +105,7 @@ VexValue *builtin_dirs(EvalCtx *ctx, VexValue *input, VexValue **args, size_t ar
 
 VexValue *builtin_complete(EvalCtx *ctx, VexValue *input, VexValue **args, size_t argc);
 int comp_spec_get_kind(const char *cmd);
+bool comp_spec_try_help(const char *cmd);
 void plugin_register_completion(const char *cmd, const char *const *words);
 size_t comp_spec_get_words(const char *cmd, const char ***words_out);
 

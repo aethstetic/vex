@@ -1222,12 +1222,25 @@ static void do_complete(EditState *e) {
                 gather_file_completions(e, word, word_len);
                 break;
             case COMP_CTX_GENERIC:
+                if (word_len > 0 && word[0] == '-') {
+                    /* Try auto-generating completions from --help */
+                    char *cmd = extract_cmd_name(e->buf.buf, word_start);
+                    if (cmd[0]) {
+                        comp_spec_try_help(cmd);
+                        gather_word_completions(e, word, word_len, cmd);
+                        if (e->comp_count > 0) break;
+                    }
+                }
                 gather_file_completions(e, word, word_len);
                 break;
             case COMP_CTX_WORDS: {
                 char *cmd = extract_cmd_name(e->buf.buf, word_start);
                 gather_word_completions(e, word, word_len, cmd);
-                /* Fall back to file completions if no word matches */
+                /* Fall back: try --help parsing for flags, then files */
+                if (e->comp_count == 0 && word_len > 0 && word[0] == '-') {
+                    comp_spec_try_help(cmd);
+                    gather_word_completions(e, word, word_len, cmd);
+                }
                 if (e->comp_count == 0)
                     gather_file_completions(e, word, word_len);
                 break;

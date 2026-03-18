@@ -36,6 +36,7 @@ typedef struct Parser Parser;
 #include "env.h"
 #include "builtin.h"
 #include "undo.h"
+#include "help_parse.h"
 #include "eval.h"
 #include "format.h"
 #include "filter.h"
