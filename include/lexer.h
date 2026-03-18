@@ -35,6 +35,7 @@ typedef enum {
     TOK_OR_OR,
     TOK_APPEND,
     TOK_TILDE,
+    TOK_AT,
     TOK_DOLLAR_LPAREN,
     TOK_LT_LPAREN,
     TOK_HEREDOC,

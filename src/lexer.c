@@ -261,6 +261,8 @@ Token lexer_next(Lexer *l) {
     case '&':
         if (match(l, '&')) return make_token(l, TOK_AND_AND);
         return make_token(l, TOK_AMPERSAND);
+
+    case '@': return make_token(l, TOK_AT);
     }
 
     return error_token(l, "unexpected character");

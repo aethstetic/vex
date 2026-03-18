@@ -696,6 +696,20 @@ VexValue *builtin_ls(EvalCtx *ctx, VexValue *input, VexValue **args, size_t argc
     }
     closedir(d);
 
+    /* Sort by size descending */
+    for (size_t i = 0; i < list->list.len; i++) {
+        for (size_t k = i + 1; k < list->list.len; k++) {
+            VexValue *a = list->list.data[i];
+            VexValue *b = list->list.data[k];
+            VexValue *sa = vval_record_get(a, "size");
+            VexValue *sb = vval_record_get(b, "size");
+            if (sa && sb && sb->integer > sa->integer) {
+                list->list.data[i] = b;
+                list->list.data[k] = a;
+            }
+        }
+    }
+
     if (!ctx->in_pipeline) {
         /* Calculate max column widths */
         size_t name_w = 4; /* "name" */
@@ -2257,9 +2271,21 @@ VexValue *builtin_alias(EvalCtx *ctx, VexValue *input, VexValue **args, size_t a
     }
     VexStr name = vval_to_str(args[0]);
 
+    /* Skip '=' if present: "alias la = ls -la" or "alias la ls -la" */
+    size_t start = 1;
+    if (start < argc && args[start]->type == VEX_VAL_STRING &&
+        strcmp(vstr_data(&args[start]->string), "=") == 0)
+        start++;
+
+    if (start >= argc) {
+        vstr_free(&name);
+        vex_err("alias: expected command after name");
+        return vval_error("alias: expected command");
+    }
+
     VexStr exp = vstr_empty();
-    for (size_t i = 1; i < argc; i++) {
-        if (i > 1) vstr_append_char(&exp, ' ');
+    for (size_t i = start; i < argc; i++) {
+        if (i > start) vstr_append_char(&exp, ' ');
         VexStr s = vval_to_str(args[i]);
         vstr_append_str(&exp, &s);
         vstr_free(&s);

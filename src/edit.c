@@ -632,6 +632,9 @@ static void highlight_append(VexStr *out, const char *buf, size_t len) {
         Token tok = lexer_next(&lex);
         if (tok.type == TOK_EOF) break;
 
+        /* TOK_ERROR start points to a message string, not the source buffer */
+        if (tok.type == TOK_ERROR) continue;
+
         size_t tok_start = (size_t)(tok.start - src);
         size_t tok_end = tok_start + tok.length;
 

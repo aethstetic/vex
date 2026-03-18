@@ -97,7 +97,7 @@ static bool is_bare_word_token(TokenType t) {
     case TOK_PERCENT: case TOK_PLUS: case TOK_CARET:
     case TOK_NOT: case TOK_TILDE:
     case TOK_LBRACE: case TOK_RBRACE: case TOK_COMMA:
-    case TOK_ASSIGN:
+    case TOK_AT:
         return true;
     default:
         return false;
@@ -120,6 +120,14 @@ static ASTNode *parse_external_arg(Parser *p) {
 
     if (check(p, TOK_TRUE) || check(p, TOK_FALSE) || check(p, TOK_NULL)) {
         return parse_primary(p);
+    }
+
+    /* Treat '=' as a standalone string arg (for alias la = ls) */
+    if (check(p, TOK_ASSIGN)) {
+        parser_advance(p);
+        ASTNode *n = node_new(p, AST_LITERAL);
+        n->literal = vval_string_cstr("=");
+        return n;
     }
 
     if (is_bare_word_token(p->current.type)) {
