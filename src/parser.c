@@ -122,11 +122,15 @@ static ASTNode *parse_external_arg(Parser *p) {
         return parse_primary(p);
     }
 
-    /* Treat '=' as a standalone string arg (for alias la = ls) */
-    if (check(p, TOK_ASSIGN)) {
+    /* Treat operator tokens as string args (for alias values with && || | > >>) */
+    if (check(p, TOK_ASSIGN) || check(p, TOK_AND_AND) || check(p, TOK_OR_OR) ||
+        check(p, TOK_PIPE) || check(p, TOK_GT) || check(p, TOK_APPEND) ||
+        check(p, TOK_LT) || check(p, TOK_SEMI) || check(p, TOK_AMPERSAND)) {
+        const char *start = p->current.start;
+        size_t len = p->current.length;
         parser_advance(p);
         ASTNode *n = node_new(p, AST_LITERAL);
-        n->literal = vval_string_cstr("=");
+        n->literal = vval_string(vstr_newn(start, len));
         return n;
     }
 
@@ -1158,14 +1162,20 @@ static ASTNode *parse_command(Parser *p) {
     VEX_VEC(ASTNode *) args;
     vvec_init(args);
 
-    while (!check(p, TOK_NEWLINE) && !check(p, TOK_PIPE) &&
-           !check(p, TOK_BYTE_PIPE) && !check(p, TOK_SEMI) &&
-           !check(p, TOK_EOF) && !check(p, TOK_RPAREN) &&
+    /* alias consumes args including && || | so they're part of the alias value */
+    bool greedy_args = (strcmp(n->call.cmd_name, "alias") == 0);
+
+    while (!check(p, TOK_NEWLINE) && !check(p, TOK_EOF) &&
+           !check(p, TOK_SEMI) &&
+           (greedy_args || (
+           !check(p, TOK_PIPE) &&
+           !check(p, TOK_BYTE_PIPE) &&
+           !check(p, TOK_RPAREN) &&
            !check(p, TOK_RBRACE) && !check(p, TOK_AMPERSAND) &&
            !check(p, TOK_AND_AND) && !check(p, TOK_OR_OR) &&
            !check(p, TOK_GT) && !check(p, TOK_APPEND) && !check(p, TOK_LT) &&
                !check(p, TOK_HEREDOC) && !check(p, TOK_HEREDOC_STRING) &&
-               !is_stderr_redirect(p)) {
+               !is_stderr_redirect(p)))) {
         vvec_push(args, is_builtin ? parse_cmd_arg_expr(p) : parse_external_arg(p));
     }
 
@@ -1610,18 +1620,22 @@ static ASTNode *parse_statement(Parser *p) {
              strcmp(name, "abbr") == 0) && check(p, TOK_IDENT)) {
             ASTNode *n = node_new(p, AST_CALL);
             n->call.cmd_name = name;
+            bool is_alias = (strcmp(name, "alias") == 0);
             VEX_VEC(ASTNode *) args;
             vvec_init(args);
-            while (!check(p, TOK_NEWLINE) && !check(p, TOK_PIPE) &&
-                   !check(p, TOK_BYTE_PIPE) && !check(p, TOK_SEMI) &&
-                   !check(p, TOK_EOF) && !check(p, TOK_RPAREN) &&
+            /* alias consumes until ; or newline (so && || work in alias values) */
+            while (!check(p, TOK_NEWLINE) && !check(p, TOK_EOF) &&
+                   !check(p, TOK_SEMI) &&
+                   (is_alias || (
+                   !check(p, TOK_PIPE) &&
+                   !check(p, TOK_BYTE_PIPE) &&
+                   !check(p, TOK_RPAREN) &&
                    !check(p, TOK_RBRACE) && !check(p, TOK_AMPERSAND) &&
                    !check(p, TOK_AND_AND) && !check(p, TOK_OR_OR) &&
                    !check(p, TOK_GT) && !check(p, TOK_APPEND) && !check(p, TOK_LT) &&
                    !check(p, TOK_HEREDOC) && !check(p, TOK_HEREDOC_STRING) &&
-               !is_stderr_redirect(p)) {
+               !is_stderr_redirect(p)))) {
                 if (check(p, TOK_IDENT)) {
-
                     ASTNode *lit = node_new(p, AST_LITERAL);
                     lit->literal = vval_string(vstr_newn(p->current.start, p->current.length));
                     parser_advance(p);

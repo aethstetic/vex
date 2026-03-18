@@ -678,7 +678,7 @@ static void highlight_append(VexStr *out, const char *buf, size_t len) {
             size_t nlen = tok.length < 127 ? tok.length : 127;
             memcpy(name, tok.start, nlen);
             name[nlen] = '\0';
-            if (builtin_exists(name)) {
+            if (builtin_exists(name) || alias_lookup(name)) {
                 color = clr_builtin;
             } else if (cmd_pos) {
 
