@@ -1000,6 +1000,16 @@ int main(int argc, char **argv) {
                     fprintf(f, "# Editing mode: emacs (default) or vi\n");
                     fprintf(f, "# export VEX_EDIT_MODE \"emacs\"\n\n");
 
+                    fprintf(f, "# Syntax colors (ANSI codes, hex #rrggbb, or 256-color)\n");
+                    fprintf(f, "# export VEX_COLOR_BUILTIN \"#89b4fa\"\n");
+                    fprintf(f, "# export VEX_COLOR_COMMAND \"#a6e3a1\"\n");
+                    fprintf(f, "# export VEX_COLOR_STRING \"#a6e3a1\"\n");
+                    fprintf(f, "# export VEX_COLOR_KEYWORD \"#cba6f7\"\n");
+                    fprintf(f, "# export VEX_COLOR_NUMBER \"#f9e2af\"\n");
+                    fprintf(f, "# export VEX_COLOR_ERROR \"#f38ba8\"\n");
+                    fprintf(f, "# export VEX_COLOR_VARIABLE \"#89dceb\"\n");
+                    fprintf(f, "# export VEX_COLOR_COMMENT \"#6c7086\"\n\n");
+
                     fprintf(f, "# Aliases\n");
                     fprintf(f, "# alias ll = ls -la\n");
                     fprintf(f, "# alias la = ls -a\n");

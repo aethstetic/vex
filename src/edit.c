@@ -507,14 +507,25 @@ static const char *clr_pipe     = "\033[1;34m";
 static const char *clr_caret    = "\033[1;31m";
 static const char *clr_error    = "\033[1;31m";
 static const char *clr_variable = "\033[0;36m";
+static const char *clr_command  = "\033[0;32m";
 
 static bool    colors_initialized = false;
-static char    color_bufs[12][32];
+static char    color_bufs[14][32];
 
 static const char *parse_color_env(const char *env_name,
                                    const char *default_val, int idx) {
     const char *val = getenv(env_name);
     if (!val) return default_val;
+
+    if (val[0] == '#' && strlen(val) == 7) {
+        /* Hex color: #rrggbb -> 24-bit truecolor */
+        unsigned int r, g, b;
+        if (sscanf(val + 1, "%02x%02x%02x", &r, &g, &b) == 3) {
+            snprintf(color_bufs[idx], sizeof(color_bufs[idx]),
+                     "\033[38;2;%u;%u;%um", r, g, b);
+            return color_bufs[idx];
+        }
+    }
 
     snprintf(color_bufs[idx], sizeof(color_bufs[idx]), "\033[%sm", val);
     return color_bufs[idx];
@@ -534,6 +545,7 @@ static void init_colors(void) {
     clr_caret    = parse_color_env("VEX_COLOR_CARET",    "\033[1;31m", 8);
     clr_error    = parse_color_env("VEX_COLOR_ERROR",    "\033[1;31m", 9);
     clr_variable = parse_color_env("VEX_COLOR_VARIABLE", "\033[0;36m", 10);
+    clr_command  = parse_color_env("VEX_COLOR_COMMAND",  "\033[0;32m", 11);
 }
 
 static const char *token_color(TokenType type) {
@@ -681,9 +693,9 @@ static void highlight_append(VexStr *out, const char *buf, size_t len) {
             if (builtin_exists(name) || alias_lookup(name)) {
                 color = clr_builtin;
             } else if (cmd_pos) {
-
-                if (!cached_path_exists(name)) {
-
+                if (cached_path_exists(name)) {
+                    color = clr_builtin;
+                } else {
                     color = clr_error;
                 }
             }
