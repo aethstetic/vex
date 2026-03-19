@@ -14857,60 +14857,44 @@ void pkg_autoload(EvalCtx *ctx) {
     const char *home = getenv("HOME");
     if (!home) return;
 
-    char plugins_conf[PATH_MAX];
-    snprintf(plugins_conf, sizeof(plugins_conf), "%s/.config/vex/plugins.vex", home);
+    /* Autoload from ~/.config/vex/plugins/ */
+    char plugins_dir[PATH_MAX];
+    snprintf(plugins_dir, sizeof(plugins_dir), "%s/.config/vex/plugins", home);
 
-    FILE *f = fopen(plugins_conf, "r");
-    if (f) {
-        /* Selective loading: only load plugins listed in plugins.vex */
-        char line[256];
-        while (fgets(line, sizeof(line), f)) {
-            /* Strip trailing newline */
-            size_t len = strlen(line);
-            while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r'))
-                line[--len] = '\0';
-            /* Skip empty lines and comments */
-            if (len == 0 || line[0] == '#') continue;
-
-            char init_path[PATH_MAX];
-            snprintf(init_path, sizeof(init_path),
-                     "%s/.local/share/vex/plugins/%s/init.vex", home, line);
-            struct stat st;
-            if (stat(init_path, &st) != 0) {
-                fprintf(stderr, "pkg: plugin '%s' not found, skipping\n", line);
-                continue;
-            }
-
-            VexValue *path_arg = vval_string_cstr(init_path);
-            VexValue *r = builtin_source(ctx, NULL, &path_arg, 1);
-            vval_release(path_arg);
-            vval_release(r);
-            ctx->had_error = false;
-        }
-        fclose(f);
-        return;
-    }
-
-    /* Fallback: load all packages */
-    const char *dir = pkg_dir();
-    if (!dir) return;
-
-    DIR *d = opendir(dir);
+    DIR *d = opendir(plugins_dir);
     if (!d) return;
 
     struct dirent *ent;
     while ((ent = readdir(d)) != NULL) {
         if (ent->d_name[0] == '.') continue;
-        char init_path[PATH_MAX];
-        snprintf(init_path, sizeof(init_path), "%s/%s/init.vex", dir, ent->d_name);
-        struct stat st;
-        if (stat(init_path, &st) != 0) continue;
 
-        VexValue *path_arg = vval_string_cstr(init_path);
-        VexValue *r = builtin_source(ctx, NULL, &path_arg, 1);
-        vval_release(path_arg);
-        vval_release(r);
-        ctx->had_error = false;
+        /* Try init.vex inside subdirectory */
+        char init_path[PATH_MAX];
+        snprintf(init_path, sizeof(init_path), "%s/%s/init.vex",
+                 plugins_dir, ent->d_name);
+        struct stat st;
+        if (stat(init_path, &st) == 0) {
+            VexValue *path_arg = vval_string_cstr(init_path);
+            VexValue *r = builtin_source(ctx, NULL, &path_arg, 1);
+            vval_release(path_arg);
+            vval_release(r);
+            ctx->had_error = false;
+            continue;
+        }
+
+        /* Try .vex file directly */
+        snprintf(init_path, sizeof(init_path), "%s/%s",
+                 plugins_dir, ent->d_name);
+        size_t nlen = strlen(ent->d_name);
+        if (nlen > 4 && strcmp(ent->d_name + nlen - 4, ".vex") == 0) {
+            if (stat(init_path, &st) == 0) {
+                VexValue *path_arg = vval_string_cstr(init_path);
+                VexValue *r = builtin_source(ctx, NULL, &path_arg, 1);
+                vval_release(path_arg);
+                vval_release(r);
+                ctx->had_error = false;
+            }
+        }
     }
     closedir(d);
 }

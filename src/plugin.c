@@ -148,6 +148,68 @@ static void api_eval_string(void *ctx, const char *code) {
     arena_destroy(tmp);
 }
 
+/* API v4 additions */
+static VexValue *api_new_string_cstr(const char *s) {
+    return vval_string_cstr(s);
+}
+
+static VexValue *api_record_keys(VexValue *rec) {
+    if (!rec || rec->type != VEX_VAL_RECORD) return vval_list();
+    VexValue *list = vval_list();
+    VexMapIter it = vmap_iter(&rec->record);
+    const char *key;
+    void *val;
+    while (vmap_next(&it, &key, &val)) {
+        VexValue *k = vval_string_cstr(key);
+        vval_list_push(list, k);
+        vval_release(k);
+    }
+    return list;
+}
+
+static bool api_list_remove(VexValue *list, size_t i) {
+    if (!list || list->type != VEX_VAL_LIST) return false;
+    size_t len = vval_list_len(list);
+    if (i >= len) return false;
+    VexValue *item = vval_list_get(list, i);
+    if (item) vval_release(item);
+    for (size_t j = i; j + 1 < len; j++)
+        list->list.data[j] = list->list.data[j + 1];
+    list->list.len--;
+    return true;
+}
+
+static bool api_record_remove(VexValue *rec, const char *key) {
+    if (!rec || rec->type != VEX_VAL_RECORD) return false;
+    return vmap_remove(&rec->record, key);
+}
+
+static const char *api_get_env(const char *name) {
+    return getenv(name);
+}
+
+static void api_set_env(const char *name, const char *value) {
+    if (value)
+        setenv(name, value, 1);
+    else
+        unsetenv(name);
+}
+
+#define MAX_PLUGIN_HOOKS 32
+static struct {
+    char *event;
+    VexPluginCommandFn fn;
+} plugin_hooks[MAX_PLUGIN_HOOKS];
+static size_t plugin_hook_count = 0;
+
+static void api_register_hook(const char *event, VexPluginCommandFn fn) {
+    if (plugin_hook_count < MAX_PLUGIN_HOOKS) {
+        plugin_hooks[plugin_hook_count].event = strdup(event);
+        plugin_hooks[plugin_hook_count].fn = fn;
+        plugin_hook_count++;
+    }
+}
+
 void plugin_api_init(void) {
     api = (VexPluginAPI){
         .api_version = VEX_PLUGIN_API_VERSION,
@@ -186,6 +248,14 @@ void plugin_api_init(void) {
         .register_prompt  = api_register_prompt,
         .register_rprompt = api_register_rprompt,
         .get_shell_state  = api_get_shell_state,
+
+        .new_string_cstr = api_new_string_cstr,
+        .record_keys     = api_record_keys,
+        .list_remove     = api_list_remove,
+        .record_remove   = api_record_remove,
+        .get_env         = api_get_env,
+        .set_env         = api_set_env,
+        .register_hook   = api_register_hook,
     };
 }
 

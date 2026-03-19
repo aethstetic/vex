@@ -1,7 +1,7 @@
 #ifndef VEX_PLUGIN_H
 #define VEX_PLUGIN_H
 
-#define VEX_PLUGIN_API_VERSION 3
+#define VEX_PLUGIN_API_VERSION 4
 
 typedef VexValue *(*VexPluginCommandFn)(void *api, VexValue *input,
                                         VexValue **args, size_t argc);
@@ -48,6 +48,15 @@ typedef struct VexPluginAPI {
     void (*register_prompt)(VexPluginCommandFn fn);
     void (*register_rprompt)(VexPluginCommandFn fn);
     VexValue *(*get_shell_state)(void);
+
+    /* API v4 additions */
+    VexValue *(*new_string_cstr)(const char *s);
+    VexValue *(*record_keys)(VexValue *rec);
+    bool      (*list_remove)(VexValue *list, size_t i);
+    bool      (*record_remove)(VexValue *rec, const char *key);
+    const char *(*get_env)(const char *name);
+    void      (*set_env)(const char *name, const char *value);
+    void      (*register_hook)(const char *event, VexPluginCommandFn fn);
 } VexPluginAPI;
 
 typedef void (*VexPluginInitFn)(VexPluginAPI *api);

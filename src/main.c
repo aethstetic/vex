@@ -1029,8 +1029,30 @@ int main(int argc, char **argv) {
                 mkdir(dir, 0755);
                 snprintf(dir, sizeof(dir), "%s/.local/share/vex", home);
                 mkdir(dir, 0755);
-                snprintf(dir, sizeof(dir), "%s/.local/share/vex/plugins", home);
+
+                /* Create plugins autoload directory */
+                snprintf(dir, sizeof(dir), "%s/.config/vex/plugins", home);
                 mkdir(dir, 0755);
+                snprintf(dir, sizeof(dir), "%s/.config/vex/plugins/hello", home);
+                mkdir(dir, 0755);
+
+                /* Create template hello plugin */
+                {
+                    char hello_path[4096];
+                    snprintf(hello_path, sizeof(hello_path),
+                             "%s/.config/vex/plugins/hello/init.vex", home);
+                    FILE *hp = fopen(hello_path, "w");
+                    if (hp) {
+                        fprintf(hp, "# Hello plugin — example autoloaded plugin\n");
+                        fprintf(hp, "# Plugins in ~/.config/vex/plugins/ are loaded on startup\n");
+                        fprintf(hp, "# Delete this folder to remove the greeting\n\n");
+                        fprintf(hp, "def-cmd \"hello\" \"hello [name]\" \"Say hello\" {|input, name|\n");
+                        fprintf(hp, "    let who = if $name != null { $name } else { $USER }\n");
+                        fprintf(hp, "    \"Hello, \" + $who + \"!\"\n");
+                        fprintf(hp, "}\n");
+                        fclose(hp);
+                    }
+                }
 
                 if (isatty(STDIN_FILENO)) {
                     fprintf(stderr, "Created ~/.config/vex/config.vex\n");
