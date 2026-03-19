@@ -1664,8 +1664,16 @@ static ASTNode *parse_statement(Parser *p) {
             return n;
         }
 
-        if (builtin_exists(name) || plugin_cmd_exists(name) || find_in_path(name)) {
+        if (builtin_exists(name) || plugin_cmd_exists(name)) {
             return parse_command(p);
+        }
+
+        {
+            char *ext = find_in_path(name);
+            if (ext) {
+                free(ext);
+                return parse_command(p);
+            }
         }
 
         /* Unknown identifier followed by args: treat as command call */
