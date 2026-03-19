@@ -330,6 +330,7 @@ const char *token_type_name(TokenType t) {
     case TOK_FAT_ARROW:  return "=>";
     case TOK_ARROW:      return "->";
     case TOK_AMPERSAND:  return "&";
+    case TOK_AT:         return "@";
     case TOK_AND_AND:    return "&&";
     case TOK_OR_OR:      return "||";
     case TOK_APPEND:     return ">>";
