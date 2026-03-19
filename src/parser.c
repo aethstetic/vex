@@ -97,7 +97,7 @@ static bool is_bare_word_token(TokenType t) {
     case TOK_PERCENT: case TOK_PLUS: case TOK_CARET:
     case TOK_NOT: case TOK_TILDE:
     case TOK_LBRACE: case TOK_RBRACE: case TOK_COMMA:
-    case TOK_AT:
+    case TOK_AT: case TOK_ASSIGN:
         return true;
     default:
         return false;
@@ -123,7 +123,7 @@ static ASTNode *parse_external_arg(Parser *p) {
     }
 
     /* Treat operator tokens as string args (for alias values with && || | > >>) */
-    if (check(p, TOK_ASSIGN) || check(p, TOK_AND_AND) || check(p, TOK_OR_OR) ||
+    if (check(p, TOK_AND_AND) || check(p, TOK_OR_OR) ||
         check(p, TOK_PIPE) || check(p, TOK_GT) || check(p, TOK_APPEND) ||
         check(p, TOK_LT) || check(p, TOK_SEMI) || check(p, TOK_AMPERSAND)) {
         const char *start = p->current.start;
@@ -1601,18 +1601,30 @@ static ASTNode *parse_statement(Parser *p) {
             p->alias_depth++;
 
             size_t exp_len = strlen(alias_exp);
-            const char *rest = p->lexer.current;
-            size_t rest_len = strlen(rest);
+            /* Include current token and everything after it */
+            const char *rest = p->current.start;
+            size_t rest_len = rest ? strlen(rest) : 0;
             char *expanded = malloc(exp_len + 1 + rest_len + 1);
             memcpy(expanded, alias_exp, exp_len);
             expanded[exp_len] = ' ';
-            memcpy(expanded + exp_len + 1, rest, rest_len);
+            if (rest_len > 0)
+                memcpy(expanded + exp_len + 1, rest, rest_len);
             expanded[exp_len + 1 + rest_len] = '\0';
 
             char *kept = arena_strndup(p->arena, expanded, exp_len + 1 + rest_len);
             free(expanded);
             p->lexer = lexer_init(kept);
             parser_advance(p);
+
+            /* The expanded alias is a command — parse it as one.
+               If the first token is a keyword (let, if, for, etc.),
+               fall back to parse_statement for proper handling. */
+            if (p->current.type == TOK_IDENT ||
+                p->current.type == TOK_DOT) {
+                p->previous = p->current;
+                parser_advance(p);
+                return parse_command(p);
+            }
             return parse_statement(p);
         }
 
