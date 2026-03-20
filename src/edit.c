@@ -382,7 +382,10 @@ static const char *find_history_hint(EditState *e) {
         const char *entry = e->history.entries[i - 1];
         if (strncmp(entry, e->buf.buf, e->buf.len) == 0 &&
             strlen(entry) > e->buf.len) {
-            return entry + e->buf.len;
+            const char *hint = entry + e->buf.len;
+            /* Don't suggest flags unless user typed '-' */
+            if (hint[0] == ' ' && hint[1] == '-') continue;
+            return hint;
         }
     }
     return NULL;
