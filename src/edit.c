@@ -2055,6 +2055,8 @@ char *edit_readline(EditState *e, const char *prompt) {
             case KEY_ENTER:
                 abbr_expand_buf(&e->buf);
                 vi_set_cursor_bar();
+                /* Clear hint/preview before newline */
+                write(STDOUT_FILENO, "\033[K", 3);
                 edit_disable_raw(e);
                 write(STDOUT_FILENO, "\n", 1);
                 e->vi_insert = true;
@@ -2622,6 +2624,8 @@ char *edit_readline(EditState *e, const char *prompt) {
         case KEY_ENTER:
             abbr_expand_buf(&e->buf);
             if (e->vi_mode) vi_set_cursor_bar();
+            /* Clear hint/preview before newline */
+            write(STDOUT_FILENO, "\033[K\033[J", 6);
             edit_disable_raw(e);
             write(STDOUT_FILENO, "\n", 1);
             if (e->vi_mode) e->vi_insert = true;
