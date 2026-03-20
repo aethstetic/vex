@@ -1,7 +1,6 @@
 #ifndef VEX_VALUE_H
 #define VEX_VALUE_H
 
-/* Runtime type tag for VexValue. */
 typedef enum {
     VEX_VAL_NULL,
     VEX_VAL_BOOL,
@@ -17,7 +16,6 @@ typedef enum {
     VEX_VAL_RANGE,
 } VexType;
 
-/* Refcounted tagged union holding any vex runtime value. */
 struct VexValue {
     VexType type;
     uint32_t refcount;

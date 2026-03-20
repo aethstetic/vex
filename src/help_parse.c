@@ -5,7 +5,6 @@
 
 static void result_push(HelpParseResult *r, const char *flag, size_t flen,
                          const char *desc, size_t dlen) {
-    /* Deduplicate */
     for (size_t i = 0; i < r->count; i++) {
         if (strlen(r->flags[i].flag) == flen &&
             memcmp(r->flags[i].flag, flag, flen) == 0)
@@ -22,30 +21,24 @@ static void result_push(HelpParseResult *r, const char *flag, size_t flen,
     r->count++;
 }
 
-/* Extract flags from a single line of --help output */
 static void parse_line(HelpParseResult *r, const char *line, size_t len) {
     const char *p = line;
     const char *end = line + len;
 
-    /* Must start with whitespace */
     if (len == 0 || (*p != ' ' && *p != '\t')) return;
 
-    /* Skip leading whitespace */
     while (p < end && (*p == ' ' || *p == '\t')) p++;
     if (p >= end || *p != '-') return;
 
-    /* Find description: text after flags, separated by 2+ spaces or a tab */
     const char *desc = NULL;
     size_t dlen = 0;
     {
         const char *d = p;
         while (d < end) {
             if (*d == '\t' || (d + 1 < end && d[0] == ' ' && d[1] == ' ')) {
-                /* Skip separator whitespace */
                 while (d < end && (*d == ' ' || *d == '\t')) d++;
                 if (d < end && *d != '-') {
                     desc = d;
-                    /* Trim trailing whitespace */
                     const char *de = end;
                     while (de > desc && (de[-1] == ' ' || de[-1] == '\n' || de[-1] == '\r'))
                         de--;
@@ -57,31 +50,26 @@ static void parse_line(HelpParseResult *r, const char *line, size_t len) {
         }
     }
 
-    /* Extract flags from the flag portion of the line */
     while (p < end && *p != '\0') {
         if (*p == '-') {
             const char *fstart = p;
 
             if (p + 1 < end && p[1] == '-') {
-                /* Long flag: --something */
                 p += 2;
                 while (p < end && (isalnum((unsigned char)*p) || *p == '-' || *p == '_'))
                     p++;
                 size_t flen = (size_t)(p - fstart);
-                if (flen > 2) /* skip bare "--" */
+                if (flen > 2)
                     result_push(r, fstart, flen, desc, dlen);
-                /* Skip =VALUE */
                 if (p < end && (*p == '=' || *p == '[')) {
                     while (p < end && *p != ' ' && *p != ',' && *p != '\t') p++;
                 }
             } else {
-                /* Short flag: -x */
                 p++;
                 if (p < end && isalnum((unsigned char)*p)) {
                     size_t flen = 2;
                     result_push(r, fstart, flen, desc, dlen);
                     p++;
-                    /* Skip argument placeholder */
                     if (p < end && *p == ' ' && p + 1 < end && isupper((unsigned char)p[1])) {
                         while (p < end && *p != ',' && *p != ' ') p++;
                     }
@@ -90,10 +78,8 @@ static void parse_line(HelpParseResult *r, const char *line, size_t len) {
                 }
             }
 
-            /* Skip ", " between -v, --verbose */
             while (p < end && (*p == ',' || *p == ' ')) p++;
 
-            /* If next char isn't '-', we're past the flags */
             if (p < end && *p != '-') break;
         } else {
             break;

@@ -6,7 +6,6 @@
 typedef VexValue *(*VexPluginCommandFn)(void *api, VexValue *input,
                                         VexValue **args, size_t argc);
 
-/* Vtable passed to plugins so they can create values and register commands. */
 typedef struct VexPluginAPI {
     uint32_t api_version;
 
@@ -75,11 +74,9 @@ const char *plugin_cmd_name(size_t i);
 
 void plugin_cleanup(void);
 
-/* Plugin prompt support */
 char *plugin_prompt_eval(void);
 char *plugin_rprompt_eval(void);
 
-/* Shell state provider (set by main.c) */
 typedef VexValue *(*VexShellStateProviderFn)(void);
 void plugin_set_state_provider(VexShellStateProviderFn fn);
 

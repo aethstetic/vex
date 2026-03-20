@@ -17,7 +17,6 @@ static char *get_history_path(void) {
     return path;
 }
 
-/* Walk up directory tree to find the nearest .git directory */
 static const char *find_git_dir(void) {
     static char git_dir[4096];
     static char cached_cwd[4096];
@@ -27,7 +26,6 @@ static const char *find_git_dir(void) {
     char cwd[4096];
     if (!getcwd(cwd, sizeof(cwd))) return NULL;
 
-    /* Return cached result if cwd hasn't changed */
     if (has_cached && strcmp(cwd, cached_cwd) == 0)
         return cached_found ? git_dir : NULL;
 
@@ -50,7 +48,6 @@ static const char *find_git_dir(void) {
     return NULL;
 }
 
-/* Read current branch name from .git/HEAD, or return short hash if detached */
 static const char *get_git_branch(void) {
     static char branch[256];
     const char *gd = find_git_dir();
@@ -84,7 +81,6 @@ static const char *get_git_branch(void) {
     return NULL;
 }
 
-/* Return git dirty indicators (+staged *unstaged ?untracked), cached for 2s per cwd */
 static const char *get_git_status(void) {
     static char status[32];
     static struct timespec last_check;
@@ -375,7 +371,6 @@ static void emit_colors(char **buf, size_t *len, size_t *cap,
     }
 }
 
-/* Expand prompt format string: %d=cwd, %g=branch, %G=status, %{color}, etc. */
 static char *format_prompt(const char *fmt, int last_exit_code) {
     size_t cap = 256, len = 0;
     char *buf = malloc(cap);
@@ -505,7 +500,6 @@ static char *format_prompt(const char *fmt, int last_exit_code) {
     return buf;
 }
 
-/* Construct the default prompt: "cwd (branch status) vex> " with colors */
 static char *build_default_prompt(int last_exit_code) {
     const char *git = get_git_branch();
     const char *gs = git ? get_git_status() : "";
@@ -525,7 +519,6 @@ static char *build_default_prompt(int last_exit_code) {
     return format_prompt(fmt, last_exit_code);
 }
 
-/* Assemble left prompt: try prompt function, then plugin, then VEX_PROMPT env, then default */
 static char *build_prompt(EvalCtx *ctx, int last_exit_code) {
 
     char *fn_prompt = prompt_fn_eval(ctx);
@@ -541,7 +534,6 @@ static char *build_prompt(EvalCtx *ctx, int last_exit_code) {
     return build_default_prompt(last_exit_code);
 }
 
-/* Assemble right prompt: try rprompt function, then plugin, then VEX_RPROMPT env, then time */
 static char *build_rprompt(EvalCtx *ctx, int last_exit_code) {
 
     char *fn_rprompt = rprompt_fn_eval(ctx);
@@ -557,7 +549,6 @@ static char *build_rprompt(EvalCtx *ctx, int last_exit_code) {
     return strdup("");
 }
 
-/* Read and execute a .vex script file, statement by statement */
 static void run_file(EvalCtx *ctx, const char *path) {
     FILE *f = fopen(path, "r");
     if (!f) {
@@ -591,7 +582,6 @@ static void run_file(EvalCtx *ctx, const char *path) {
     free(source);
 }
 
-/* Detect incomplete input: unclosed braces/quotes, trailing pipes/operators, open heredocs */
 static bool needs_continuation(const char *input) {
     int braces = 0, brackets = 0, parens = 0;
     bool in_string = false, in_raw = false;
@@ -701,7 +691,6 @@ static bool needs_continuation(const char *input) {
     return false;
 }
 
-/* Parse and execute a single command line, printing the result if appropriate */
 static void run_command(EvalCtx *ctx, const char *line) {
     Parser p = parser_init(line, ctx->arena);
     ASTNode *stmt = parser_parse_line(&p);
@@ -734,7 +723,6 @@ static void run_command(EvalCtx *ctx, const char *line) {
     arena_reset(ctx->arena);
 }
 
-/* Execute a string of commands (used by -c flag), printing only the last result */
 static void run_string(EvalCtx *ctx, const char *source) {
     Parser p = parser_init(source, ctx->arena);
     VexValue *result = NULL;
@@ -775,35 +763,28 @@ static void run_string(EvalCtx *ctx, const char *source) {
     arena_reset(ctx->arena);
 }
 
-/* Build a record of current shell state for the plugin API */
 static VexValue *shell_state_provider(void) {
     VexValue *rec = vval_record();
 
-    /* cwd */
     char cwd[4096];
     if (getcwd(cwd, sizeof(cwd)))
         vval_record_set(rec, "cwd", vval_string(vstr_new(cwd)));
     else
         vval_record_set(rec, "cwd", vval_string(vstr_new("")));
 
-    /* git branch */
     const char *branch = get_git_branch();
     vval_record_set(rec, "git_branch",
                     branch ? vval_string(vstr_new(branch))
                            : vval_string(vstr_new("")));
 
-    /* git status */
     const char *gs = get_git_status();
     vval_record_set(rec, "git_status", vval_string(vstr_new(gs)));
 
-    /* exit code */
     int exit_code = repl_ctx ? repl_ctx->last_exit_code : 0;
     vval_record_set(rec, "exit_code", vval_int(exit_code));
 
-    /* command duration */
     vval_record_set(rec, "duration_ms", vval_float(last_cmd_duration_ms));
 
-    /* vi mode */
     if (repl_editor && repl_editor->vi_mode)
         vval_record_set(rec, "vi_mode",
                         vval_string(vstr_new(repl_editor->vi_insert ? "insert" : "normal")));
@@ -813,7 +794,6 @@ static VexValue *shell_state_provider(void) {
     return rec;
 }
 
-/* Interactive read-eval-print loop: handles prompt, history, multi-line, and hooks */
 static void repl(EvalCtx *ctx) {
     EditState editor;
     edit_init(&editor);
@@ -848,12 +828,12 @@ static void repl(EvalCtx *ctx) {
         editor.rprompt = build_rprompt(ctx, ctx->last_exit_code);
         editor.rprompt_width = display_width(editor.rprompt);
 
-        /* OSC 133;A — prompt start (before prompt is drawn) */
+        /* OSC 133;A prompt start */
         write(STDOUT_FILENO, "\033]133;A\007", 8);
 
         char *line = edit_readline(&editor, prompt);
 
-        /* OSC 133;B — command start (after prompt, user hit enter) */
+        /* OSC 133;B command start */
         write(STDOUT_FILENO, "\033]133;B\007", 8);
 
         free(prompt);
@@ -889,7 +869,7 @@ static void repl(EvalCtx *ctx) {
             }
         }
 
-        /* OSC 133;C — mark command execution start */
+        /* OSC 133;C execution start */
         write(STDOUT_FILENO, "\033]133;C\007", 8);
 
         ctx->had_error = false;
@@ -898,7 +878,7 @@ static void repl(EvalCtx *ctx) {
         run_command(ctx, line);
         cmd_timer_stop();
 
-        /* OSC 133;D — mark command finished with exit code */
+        /* OSC 133;D command finished */
         {
             char osc_d[32];
             int osc_len = snprintf(osc_d, sizeof(osc_d),
@@ -935,7 +915,6 @@ static void repl(EvalCtx *ctx) {
     edit_free(&editor);
 }
 
-/* Entry point: init subsystems, load config, then dispatch to repl/file/command */
 int main(int argc, char **argv) {
 
     builtins_init();
@@ -968,7 +947,6 @@ int main(int argc, char **argv) {
 
     if (is_login) setenv("VEX_LOGIN_SHELL", "1", 1);
 
-    /* First-run setup: create config directories and starter config */
     {
         const char *home = getenv("HOME");
         if (home) {
@@ -977,7 +955,6 @@ int main(int argc, char **argv) {
 
             snprintf(dir, sizeof(dir), "%s/.config/vex", home);
             if (stat(dir, &st) != 0) {
-                /* First run — create directory tree */
                 snprintf(dir, sizeof(dir), "%s/.config", home);
                 mkdir(dir, 0755);
                 snprintf(dir, sizeof(dir), "%s/.config/vex", home);
@@ -985,7 +962,6 @@ int main(int argc, char **argv) {
                 snprintf(dir, sizeof(dir), "%s/.config/vex/themes", home);
                 mkdir(dir, 0755);
 
-                /* Create starter config */
                 char conf[4096];
                 snprintf(conf, sizeof(conf), "%s/.config/vex/config.vex", home);
                 FILE *f = fopen(conf, "w");
@@ -1022,7 +998,6 @@ int main(int argc, char **argv) {
                     fclose(f);
                 }
 
-                /* Create data directories */
                 snprintf(dir, sizeof(dir), "%s/.local", home);
                 mkdir(dir, 0755);
                 snprintf(dir, sizeof(dir), "%s/.local/share", home);
@@ -1030,13 +1005,11 @@ int main(int argc, char **argv) {
                 snprintf(dir, sizeof(dir), "%s/.local/share/vex", home);
                 mkdir(dir, 0755);
 
-                /* Create plugins autoload directory */
                 snprintf(dir, sizeof(dir), "%s/.config/vex/plugins", home);
                 mkdir(dir, 0755);
                 snprintf(dir, sizeof(dir), "%s/.config/vex/plugins/hello", home);
                 mkdir(dir, 0755);
 
-                /* Create template hello plugin */
                 {
                     char hello_path[4096];
                     snprintf(hello_path, sizeof(hello_path),

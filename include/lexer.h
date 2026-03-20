@@ -51,7 +51,6 @@ typedef enum {
     TOK_ERROR,
 } TokenType;
 
-/* Single lexical token with source location. */
 struct Token {
     TokenType type;
     const char *start;

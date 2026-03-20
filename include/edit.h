@@ -47,7 +47,6 @@ enum {
     KEY_PASTE_END,
 };
 
-/* Gap-less editing buffer for one input line. */
 typedef struct {
     char *buf;
     size_t len;
@@ -63,7 +62,6 @@ typedef struct {
     char *saved_line;
 } EditHistory;
 
-/* Full line-editor state: buffer, history, completion, vi mode, etc. */
 typedef struct {
     EditBuf buf;
     EditHistory history;

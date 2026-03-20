@@ -19,11 +19,9 @@ static size_t n_plugin_cmds = 0;
 
 static VexPluginAPI api;
 
-/* Plugin prompt generators */
 static VexPluginCommandFn plugin_prompt_fn = NULL;
 static VexPluginCommandFn plugin_rprompt_fn = NULL;
 
-/* Shell state provider (registered by main.c) */
 static VexShellStateProviderFn shell_state_provider = NULL;
 
 static VexValue *api_new_null(void) { return vval_null(); }

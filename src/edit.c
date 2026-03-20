@@ -11,7 +11,6 @@
 static struct termios orig_termios;
 static bool termios_saved = false;
 
-/* Enter terminal raw mode: disable echo, canonical input, and signal generation */
 bool edit_enable_raw(EditState *e) {
     if (e->raw_mode) return true;
     if (!isatty(STDIN_FILENO)) return false;
@@ -36,15 +35,12 @@ bool edit_enable_raw(EditState *e) {
 
     if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) == -1) return false;
     e->raw_mode = true;
-    /* Enable bracket paste mode */
     write(STDOUT_FILENO, "\033[?2004h", 8);
     return true;
 }
 
-/* Restore original terminal attributes saved by edit_enable_raw */
 void edit_disable_raw(EditState *e) {
     if (e->raw_mode && termios_saved) {
-        /* Disable bracket paste mode */
         write(STDOUT_FILENO, "\033[?2004l", 8);
         tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
         e->raw_mode = false;
@@ -214,7 +210,6 @@ static void cursor_WORD_end(EditBuf *b) {
 static void cursor_home(EditBuf *b) { b->pos = 0; }
 static void cursor_end(EditBuf *b) { b->pos = b->len; }
 
-/* Save text to the kill ring, replacing any previous content */
 static void kill_ring_save(EditState *e, const char *text, size_t len) {
     free(e->kill_ring);
     e->kill_ring = malloc(len + 1);
@@ -271,7 +266,6 @@ static void kill_word_forward(EditState *e) {
     b->buf[b->len] = '\0';
 }
 
-/* Insert kill ring contents at cursor (Ctrl-Y / vi p) */
 static void yank(EditState *e) {
     if (!e->kill_ring || e->kill_ring_len == 0) return;
     buf_insert(&e->buf, e->kill_ring, e->kill_ring_len);
@@ -299,7 +293,6 @@ static void history_free(EditHistory *h) {
     free(h->saved_line);
 }
 
-/* Append line to history, deduplicating consecutive entries and enforcing VEX_HISTSIZE */
 void edit_history_add(EditState *e, const char *line) {
     if (!line || line[0] == '\0') return;
 
@@ -326,7 +319,6 @@ void edit_history_add(EditState *e, const char *line) {
     e->history.entries[e->history.count++] = strdup(line);
 }
 
-/* Load newline-delimited history entries from file */
 void edit_history_load(EditState *e, const char *path) {
     FILE *f = fopen(path, "r");
     if (!f) return;
@@ -339,7 +331,6 @@ void edit_history_load(EditState *e, const char *path) {
     fclose(f);
 }
 
-/* Write history entries to file, truncated to VEX_HISTSIZE */
 void edit_history_save(EditState *e, const char *path) {
     FILE *f = fopen(path, "w");
     if (!f) return;
@@ -384,7 +375,6 @@ static void history_browse_down(EditState *e) {
     }
 }
 
-/* Return suffix of most recent history entry matching current input, for inline autosuggestion */
 static const char *find_history_hint(EditState *e) {
     if (e->buf.len == 0) return NULL;
 
@@ -398,7 +388,6 @@ static const char *find_history_hint(EditState *e) {
     return NULL;
 }
 
-/* Read one keypress, decoding ANSI/xterm escape sequences into KEY_* constants */
 static int read_key(void) {
     char c;
     int nread;
@@ -439,7 +428,6 @@ static int read_key(void) {
                     }
                 }
 
-                /* Bracket paste: \e[200~ and \e[201~ */
                 if (seq[1] == '2' && seq[2] == '0') {
                     char s3, s4;
                     if (read(STDIN_FILENO, &s3, 1) != 1) return KEY_ESC;
@@ -518,7 +506,6 @@ static const char *parse_color_env(const char *env_name,
     if (!val) return default_val;
 
     if (val[0] == '#' && strlen(val) == 7) {
-        /* Hex color: #rrggbb -> 24-bit truecolor */
         unsigned int r, g, b;
         if (sscanf(val + 1, "%02x%02x%02x", &r, &g, &b) == 3) {
             snprintf(color_bufs[idx], sizeof(color_bufs[idx]),
@@ -644,26 +631,22 @@ static void highlight_append(VexStr *out, const char *buf, size_t len) {
         Token tok = lexer_next(&lex);
         if (tok.type == TOK_EOF) break;
 
-        /* TOK_ERROR start points to a message string, not the source buffer */
+        /* TOK_ERROR start is a message, not in source */
         if (tok.type == TOK_ERROR) continue;
 
         size_t tok_start = (size_t)(tok.start - src);
         size_t tok_end = tok_start + tok.length;
 
-        /* Gap between tokens may contain comments consumed by skip_whitespace */
         if (tok_start > last_end) {
             const char *gap = buf + last_end;
             size_t gap_len = tok_start - last_end;
-            /* Check for '#' comment in the gap */
             size_t comment_off = gap_len;
             for (size_t i = 0; i < gap_len; i++) {
                 if (gap[i] == '#') { comment_off = i; break; }
             }
             if (comment_off < gap_len) {
-                /* Whitespace before comment */
                 if (comment_off > 0)
                     vstr_append(out, gap, comment_off);
-                /* Comment in dim color */
                 vstr_append_cstr(out, clr_comment);
                 vstr_append(out, gap + comment_off, gap_len - comment_off);
                 vstr_append_cstr(out, CLR_RESET);
@@ -674,7 +657,6 @@ static void highlight_append(VexStr *out, const char *buf, size_t len) {
 
         const char *color = token_color(tok.type);
 
-        /* Highlight $variables */
         if (tok.type == TOK_DOLLAR || tok.type == TOK_DOLLAR_LPAREN) {
             color = clr_variable;
             after_dollar = true;
@@ -726,7 +708,6 @@ static void highlight_append(VexStr *out, const char *buf, size_t len) {
         last_end = tok_end;
     }
 
-    /* Trailing content (including comments at end of line) */
     if (last_end < len) {
         const char *gap = buf + last_end;
         size_t gap_len = len - last_end;
@@ -968,13 +949,11 @@ static void gather_dir_completions(EditState *e, const char *prefix, size_t pref
     closedir(d);
 }
 
-/* Cached PATH command list */
 static char **path_cmd_cache = NULL;
 static size_t path_cmd_count = 0;
-static char *path_cmd_env = NULL; /* cached PATH string to detect changes */
+static char *path_cmd_env = NULL;
 
 static void path_cache_rebuild(void) {
-    /* Free old cache */
     for (size_t i = 0; i < path_cmd_count; i++)
         free(path_cmd_cache[i]);
     free(path_cmd_cache);
@@ -998,12 +977,10 @@ static void path_cache_rebuild(void) {
         while ((ent = readdir(pd)) != NULL) {
             if (ent->d_name[0] == '.') continue;
 
-            /* Check executable */
             char full[4096];
             snprintf(full, sizeof(full), "%s/%s", dir, ent->d_name);
             if (access(full, X_OK) != 0) continue;
 
-            /* Deduplicate */
             bool dup = false;
             for (size_t i = 0; i < path_cmd_count; i++) {
                 if (strcmp(path_cmd_cache[i], ent->d_name) == 0) {
@@ -1083,7 +1060,6 @@ static void gather_command_completions(EditState *e, const char *prefix, size_t 
         }
     }
 
-    /* Use cached PATH commands instead of scanning every time */
     path_cache_ensure();
     for (size_t i = 0; i < path_cmd_count; i++) {
         const char *name = path_cmd_cache[i];
@@ -1145,7 +1121,6 @@ static void gather_word_completions(EditState *e, const char *prefix, size_t pre
     size_t count = comp_spec_get_words(cmd_name, &words);
     if (count == 0) return;
 
-    /* If spec is mostly flags, only show them when prefix starts with '-' */
     size_t flag_count = 0;
     for (size_t i = 0; i < count; i++)
         if (words[i][0] == '-') flag_count++;
@@ -1203,7 +1178,6 @@ static char *extract_cmd_name(const char *buf, size_t word_start) {
     return cmd;
 }
 
-/* Trigger or cycle tab completion: gather matches on first call, cycle on subsequent */
 static void do_complete(EditState *e) {
     if (!e->completing) {
         comp_free(e);
@@ -1293,7 +1267,6 @@ static void do_complete(EditState *e) {
                 break;
             case COMP_CTX_GENERIC:
                 if (word_len > 0 && word[0] == '-') {
-                    /* Try auto-generating completions from --help */
                     char *cmd = extract_cmd_name(e->buf.buf, word_start);
                     if (cmd[0]) {
                         comp_spec_try_help(cmd);
@@ -1306,7 +1279,6 @@ static void do_complete(EditState *e) {
             case COMP_CTX_WORDS: {
                 char *cmd = extract_cmd_name(e->buf.buf, word_start);
                 gather_word_completions(e, word, word_len, cmd);
-                /* Fall back: try --help parsing for flags, then files */
                 if (e->comp_count == 0 && word_len > 0 && word[0] == '-') {
                     comp_spec_try_help(cmd);
                     gather_word_completions(e, word, word_len, cmd);
@@ -1393,11 +1365,9 @@ static const char *format_preview_size(off_t size, char *buf, size_t buflen) {
     return buf;
 }
 
-/* Generate inline preview for destructive commands */
 static void get_command_preview(const char *buf, size_t len, VexStr *preview) {
     if (len == 0) return;
 
-    /* Skip leading whitespace */
     const char *p = buf;
     while (*p == ' ' || *p == '\t') p++;
 
@@ -1410,7 +1380,6 @@ static void get_command_preview(const char *buf, size_t len, VexStr *preview) {
     while (*p == ' ') p++;
     if (*p == '\0') return;
 
-    /* Skip flags */
     while (*p == '-') {
         while (*p && *p != ' ') p++;
         while (*p == ' ') p++;
@@ -1418,7 +1387,6 @@ static void get_command_preview(const char *buf, size_t len, VexStr *preview) {
     if (*p == '\0') return;
 
     if (is_rm) {
-        /* Collect all args and expand globs */
         glob_t gl;
         memset(&gl, 0, sizeof(gl));
         int first = 1;
@@ -1448,7 +1416,6 @@ static void get_command_preview(const char *buf, size_t len, VexStr *preview) {
             return;
         }
 
-        /* Check which paths actually exist and sum sizes */
         size_t file_count = 0;
         size_t dir_count = 0;
         off_t total_size = 0;
@@ -1469,13 +1436,11 @@ static void get_command_preview(const char *buf, size_t len, VexStr *preview) {
             const char *base = strrchr(gl.gl_pathv[i], '/');
             vstr_append_cstr(&names, base ? base + 1 : gl.gl_pathv[i]);
 
-            /* Truncate if too many */
             if (file_count + dir_count >= 8 && i + 1 < gl.gl_pathc) {
                 char more[32];
                 snprintf(more, sizeof(more), " +%zu more",
                          gl.gl_pathc - i - 1);
                 vstr_append_cstr(&names, more);
-                /* Count remaining */
                 for (size_t j = i + 1; j < gl.gl_pathc; j++) {
                     if (stat(gl.gl_pathv[j], &st) == 0) {
                         if (S_ISDIR(st.st_mode)) dir_count++;
@@ -1513,7 +1478,6 @@ static void get_command_preview(const char *buf, size_t len, VexStr *preview) {
         vstr_free(&names);
 
     } else if (is_mv || is_cp) {
-        /* Extract src and dst */
         const char *src_start = p;
         while (*p && *p != ' ') p++;
         size_t src_len = (size_t)(p - src_start);
@@ -1558,12 +1522,10 @@ static void get_command_preview(const char *buf, size_t len, VexStr *preview) {
     }
 }
 
-/* Redraw the entire line: prompt, syntax-highlighted input, hints, completion menu, and cursor */
 static void render(EditState *e) {
 
     VexStr out = vstr_empty();
 
-    /* Move cursor up to the first row if previous render wrapped */
     if (e->old_row_count > 1) {
         char move_up[32];
         snprintf(move_up, sizeof(move_up), "\033[%zuA", e->old_row_count - 1);
@@ -1583,7 +1545,6 @@ static void render(EditState *e) {
     highlight_append(&out, e->buf.buf, e->buf.len);
 
     if (e->completing && e->comp_count > 1) {
-        /* Show completion indicator and description inline */
         char indicator[64];
         snprintf(indicator, sizeof(indicator), " \033[90m(%zu/%zu)",
                  e->comp_idx + 1, e->comp_count);
@@ -1621,7 +1582,6 @@ static void render(EditState *e) {
         }
     }
 
-    /* Inline preview for destructive commands */
     size_t preview_rows = 0;
     if (!e->completing && e->buf.len > 0) {
         VexStr preview = vstr_empty();
@@ -1642,7 +1602,6 @@ static void render(EditState *e) {
 
     e->comp_menu_rows = 0;
 
-    /* Calculate how many physical rows the content occupies for next render */
     size_t vi_indicator_width = e->vi_mode ? 4 : 0;
     size_t total_width = vi_indicator_width + e->prompt_width +
                          utf8_strwidth(e->buf.buf, e->buf.len);
@@ -1655,11 +1614,9 @@ static void render(EditState *e) {
     size_t cursor_col = vi_indicator_width + e->prompt_width +
                         utf8_strwidth(e->buf.buf, e->buf.pos);
 
-    /* Position cursor accounting for wrapping */
     size_t cursor_row = e->term_cols > 0 ? cursor_col / (size_t)e->term_cols : 0;
     size_t cursor_phys_col = e->term_cols > 0 ? cursor_col % (size_t)e->term_cols : cursor_col;
 
-    /* Move to first row of content */
     if (content_rows > 1) {
         char move_up[32];
         snprintf(move_up, sizeof(move_up), "\033[%zuA", content_rows - 1);
@@ -1667,7 +1624,6 @@ static void render(EditState *e) {
     }
     vstr_append_cstr(&out, "\r");
 
-    /* Move down to cursor row */
     if (cursor_row > 0) {
         char move_down[32];
         snprintf(move_down, sizeof(move_down), "\033[%zuB", cursor_row);
@@ -1745,7 +1701,6 @@ static void search_find(EditState *e, ssize_t start_from) {
     e->search_match_idx = -1;
 }
 
-/* Interactive reverse incremental search (Ctrl-R) through history */
 static bool reverse_search(EditState *e) {
     e->searching = true;
     e->search_len = 0;
@@ -1850,7 +1805,6 @@ static void vi_set_cursor_bar(void) {
     write(STDOUT_FILENO, "\033[6 q", 5);
 }
 
-/* Initialize editor state: zero struct, allocate buffers, detect vi mode from env */
 void edit_init(EditState *e) {
     memset(e, 0, sizeof(EditState));
     buf_init(&e->buf);
@@ -1866,7 +1820,6 @@ void edit_init(EditState *e) {
     }
 }
 
-/* Release all editor resources: buffers, history, kill ring, and restore terminal */
 void edit_free(EditState *e) {
     buf_free(&e->buf);
     history_free(&e->history);
@@ -1916,15 +1869,12 @@ static void abbr_expand_buf(EditBuf *buf) {
     }
 }
 
-/* Main line editor entry point: raw mode loop dispatching keys to emacs/vi handlers */
 char *edit_readline(EditState *e, const char *prompt) {
-    /* Return queued paste lines before prompting, echoing each line */
     if (e->paste_queue_count > 0) {
         char *line = e->paste_queue[0];
         memmove(e->paste_queue, e->paste_queue + 1,
                 (e->paste_queue_count - 1) * sizeof(char *));
         e->paste_queue_count--;
-        /* Show prompt + syntax-highlighted command, no extra whitespace */
         if (prompt) {
             write(STDOUT_FILENO, prompt, strlen(prompt));
         }
@@ -1933,7 +1883,6 @@ char *edit_readline(EditState *e, const char *prompt) {
         write(STDOUT_FILENO, vstr_data(&hl), vstr_len(&hl));
         vstr_free(&hl);
         write(STDOUT_FILENO, "\r\n", 2);
-        /* Reset row tracking so next render doesn't move up spuriously */
         e->old_row_count = 0;
         return line;
     }
@@ -2008,30 +1957,24 @@ char *edit_readline(EditState *e, const char *prompt) {
         }
         if (key == KEY_PASTE_END) {
             e->in_paste = false;
-            /* Split pasted content on newlines: execute first line, queue rest */
             if (e->buf.len > 0) {
-                /* Count newlines in buffer */
                 size_t nl_count = 0;
                 for (size_t i = 0; i < e->buf.len; i++) {
                     if (e->buf.buf[i] == '\n') nl_count++;
                 }
                 if (nl_count > 0) {
-                    /* Split into lines and queue extras */
                     char *text = strdup(e->buf.buf);
                     char *saveptr = NULL;
                     char *line = strtok_r(text, "\n", &saveptr);
                     char *first_line = NULL;
                     if (line) {
-                        /* Strip leading whitespace */
                         while (*line == ' ' || *line == '\t') line++;
                         first_line = strdup(line);
                         buf_clear(&e->buf);
                         buf_set(&e->buf, first_line);
                         e->buf.pos = e->buf.len;
                     }
-                    /* Queue remaining lines */
                     while ((line = strtok_r(NULL, "\n", &saveptr)) != NULL) {
-                        /* Strip leading whitespace */
                         while (*line == ' ' || *line == '\t') line++;
                         if (line[0] == '\0') continue;
                         if (e->paste_queue_count >= e->paste_queue_cap) {
@@ -2042,10 +1985,8 @@ char *edit_readline(EditState *e, const char *prompt) {
                         e->paste_queue[e->paste_queue_count++] = strdup(line);
                     }
                     free(text);
-                    /* Auto-submit the first line, showing it on screen */
                     if (e->vi_mode) vi_set_cursor_bar();
                     edit_disable_raw(e);
-                    /* Clear current line and re-render prompt + highlighted first line */
                     write(STDOUT_FILENO, "\r\033[K", 4);
                     if (e->prompt)
                         write(STDOUT_FILENO, e->prompt, strlen(e->prompt));
@@ -2066,7 +2007,6 @@ char *edit_readline(EditState *e, const char *prompt) {
             continue;
         }
 
-        /* During paste, insert chars directly including newlines */
         if (e->in_paste) {
             if (key == KEY_ENTER || key == '\n' || key == '\r') {
                 buf_insert_char(&e->buf, '\n');

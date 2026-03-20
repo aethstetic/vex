@@ -19,7 +19,6 @@ static VexValue *vval_alloc_local(VexType type) {
     return v;
 }
 
-/* Initialize eval context with global scope, arena, and default flow state */
 EvalCtx eval_ctx_new(void) {
     EvalCtx ctx = {0};
     ctx.global = scope_new(NULL);
@@ -33,7 +32,6 @@ EvalCtx eval_ctx_new(void) {
     return ctx;
 }
 
-/* Tears down the entire eval context; scope tree and arena are owned by ctx */
 void eval_ctx_free(EvalCtx *ctx) {
     scope_free(ctx->global);
     arena_destroy(ctx->arena);
@@ -218,7 +216,7 @@ static char *tilde_expand(const char *path) {
     return result;
 }
 
-/* Apply file redirections (>, <, <<, 2>) in the child process before exec */
+/* Apply file redirections in child before exec */
 static void apply_redirects(const Redirect *r) {
     if (!r) return;
     if (r->stdout_file) {
@@ -281,7 +279,7 @@ static void apply_redirects(const Redirect *r) {
     }
 }
 
-/* Fork+exec an external command with fd wiring, job control, and stop handling */
+/* Fork+exec external command */
 int exec_external_redir(const char *name, char **argv, int in_fd, int out_fd,
                         const Redirect *redir) {
     fflush(stdout);
@@ -367,7 +365,7 @@ int exec_external(const char *name, char **argv, int in_fd, int out_fd) {
     return exec_external_redir(name, argv, in_fd, out_fd, NULL);
 }
 
-/* Fork+exec a command into a background job group, returns job id */
+/* Fork+exec as background job */
 int exec_external_bg(const char *name, char **argv, const char *cmd_str) {
     fflush(stdout);
     fflush(stderr);
@@ -403,7 +401,7 @@ int exec_external_bg(const char *name, char **argv, const char *cmd_str) {
     return job_id;
 }
 
-/* Fork+exec and capture stdout into a VexValue string (for pipelines/subst) */
+/* Fork+exec, capture stdout into string */
 VexValue *exec_external_capture(const char *name, char **argv, int in_fd) {
     int pipefd[2];
     if (pipe(pipefd) == -1) {
@@ -471,7 +469,7 @@ VexValue *exec_external_capture(const char *name, char **argv, int in_fd) {
     return vval_string(output);
 }
 
-/* Invoke a closure: bind params (with rest/defaults), set $it, eval body, handle return flow */
+/* Invoke a closure with param binding */
 VexValue *eval_call_closure(EvalCtx *ctx, VexValue *closure,
                             VexValue **args, size_t argc) {
     if (!closure || closure->type != VEX_VAL_CLOSURE) {
@@ -958,7 +956,7 @@ static VexValue *eval_binary(EvalCtx *ctx, ASTNode *node) {
     return result;
 }
 
-/* Main AST dispatch: walks every node type (literals, calls, pipes, control flow, etc.) */
+/* Main AST eval dispatch */
 static VexValue *eval_node(EvalCtx *ctx, ASTNode *node) {
     if (!node) return vval_null();
 
@@ -978,7 +976,7 @@ static VexValue *eval_node(EvalCtx *ctx, ASTNode *node) {
             return argv ? vval_retain(argv) : vval_list();
         }
 
-        /* $in: exposes the previous pipeline stage's output to the current stage */
+        /* $in: pipeline input from previous stage */
         if (node->name[0] == 'i' && node->name[1] == 'n' && node->name[2] == '\0') {
             return ctx->pipeline_input ? vval_retain(ctx->pipeline_input) : vval_null();
         }
@@ -989,7 +987,6 @@ static VexValue *eval_node(EvalCtx *ctx, ASTNode *node) {
         const char *env_val = getenv(node->name);
         if (env_val) return vval_string_cstr(env_val);
 
-        /* Script commands registered via def-cmd (no-arg invocation) */
         VexValue *scmd_cl = script_cmd_get_closure(node->name);
         if (scmd_cl) {
             VexValue *call_args[1];
@@ -999,7 +996,6 @@ static VexValue *eval_node(EvalCtx *ctx, ASTNode *node) {
             return result;
         }
 
-        /* In a pipeline, treat unknown idents as bare strings (command args) */
         if (ctx->pipeline_input) {
             return vval_string_cstr(node->name);
         }
@@ -1221,7 +1217,7 @@ static VexValue *eval_node(EvalCtx *ctx, ASTNode *node) {
     }
 
     case AST_CALL: {
-        /* Dispatch: try builtin -> plugin -> user closure -> external, in order */
+        /* Dispatch: builtin -> plugin -> closure -> external */
         if (vex_opt_xtrace()) {
             fprintf(stderr, "+ %s", node->call.cmd_name);
             for (size_t i = 0; i < node->call.arg_count; i++) {
@@ -1325,7 +1321,6 @@ static VexValue *eval_node(EvalCtx *ctx, ASTNode *node) {
             return result;
         }
 
-        /* Script commands registered via def-cmd */
         VexValue *scmd_closure = script_cmd_get_closure(node->call.cmd_name);
         if (scmd_closure) {
             size_t total = node->call.arg_count + 1;
@@ -1414,7 +1409,7 @@ static VexValue *eval_node(EvalCtx *ctx, ASTNode *node) {
     }
 
     case AST_PIPELINE: {
-        /* Value pipeline: thread each stage's result as $in to the next stage */
+        /* Value pipeline: thread $in between stages */
         VexValue *saved_input = ctx->pipeline_input;
         bool saved_in_pipeline = ctx->in_pipeline;
         VexValue *result = NULL;
@@ -1434,7 +1429,7 @@ static VexValue *eval_node(EvalCtx *ctx, ASTNode *node) {
     }
 
     case AST_BYTE_PIPELINE: {
-        /* Unix-style byte pipe: fork all-external stages with real pipe(2) fds */
+        /* Byte pipe: fork stages with pipe(2) */
         size_t n = node->pipeline.count;
         if (n == 0) return vval_null();
 
@@ -1785,7 +1780,6 @@ static VexValue *eval_node(EvalCtx *ctx, ASTNode *node) {
     }
 
     case AST_BACKGROUND: {
-        /* Run command in background process group via &-syntax */
         ASTNode *inner = node->bg_stmt;
 
         if (inner->kind == AST_CALL || inner->kind == AST_EXTERNAL_CALL) {
@@ -1817,7 +1811,7 @@ static VexValue *eval_node(EvalCtx *ctx, ASTNode *node) {
     }
 
     case AST_CMD_SUBST: {
-        /* $(...) capture: redirect stdout to pipe, eval inner, return captured string */
+        /* $(...) capture */
         int pipefd[2];
         if (pipe(pipefd) == -1) return vval_error("pipe failed");
 
@@ -1864,7 +1858,7 @@ static VexValue *eval_node(EvalCtx *ctx, ASTNode *node) {
     }
 
     case AST_PROC_SUBST: {
-        /* <(...) process substitution: fork child, return /dev/fd/N path */
+        /* <(...) process substitution */
         int pipefd[2];
         if (pipe(pipefd) == -1) return vval_error("pipe failed");
 
@@ -1911,7 +1905,6 @@ static VexValue *eval_node(EvalCtx *ctx, ASTNode *node) {
     }
 
     case AST_SUBSHELL: {
-        /* Fork a subshell, eval block in child, wait and return exit code */
         fflush(stdout);
         fflush(stderr);
         pid_t pid = fork();
@@ -2169,12 +2162,10 @@ static VexValue *eval_node(EvalCtx *ctx, ASTNode *node) {
     }
 }
 
-/* Public entry point: evaluate an AST node and return its value */
 VexValue *eval(EvalCtx *ctx, ASTNode *node) {
     return eval_node(ctx, node);
 }
 
-/* Public entry point for pipeline evaluation (delegates to eval_node) */
 VexValue *eval_pipeline(EvalCtx *ctx, ASTNode *node) {
     return eval_node(ctx, node);
 }

@@ -77,7 +77,7 @@ void vex_err(const char *fmt, ...) {
     va_end(args);
 }
 
-/* Damerau-Levenshtein: like Levenshtein but transposition counts as 1 edit */
+/* Damerau-Levenshtein with transposition */
 size_t vex_levenshtein(const char *a, const char *b) {
     size_t alen = strlen(a);
     size_t blen = strlen(b);
@@ -112,7 +112,6 @@ size_t vex_levenshtein(const char *a, const char *b) {
             curr[j] = del < ins ? del : ins;
             if (sub < curr[j]) curr[j] = sub;
 
-            /* Transposition: swap of adjacent characters */
             if (i > 1 && j > 1 &&
                 a[i-1] == b[j-2] && a[i-2] == b[j-1]) {
                 size_t trans = pprev[j-2] + cost;
@@ -132,7 +131,6 @@ size_t vex_levenshtein(const char *a, const char *b) {
     return result;
 }
 
-/* Count how many chars from target appear in candidate (order-independent) */
 static size_t char_overlap(const char *target, const char *candidate) {
     size_t count = 0;
     size_t tlen = strlen(target);
@@ -163,7 +161,6 @@ const char *vex_closest_match(const char *target, const char **candidates,
             best = candidates[i];
             best_overlap = char_overlap(target, candidates[i]);
         } else if (d == best_dist) {
-            /* Tiebreaker: prefer candidate with more character overlap */
             size_t overlap = char_overlap(target, candidates[i]);
             if (overlap > best_overlap) {
                 best = candidates[i];

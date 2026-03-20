@@ -122,7 +122,6 @@ static ASTNode *parse_external_arg(Parser *p) {
         return parse_primary(p);
     }
 
-    /* Treat operator tokens as string args (for alias values with && || | > >>) */
     if (check(p, TOK_AND_AND) || check(p, TOK_OR_OR) ||
         check(p, TOK_PIPE) || check(p, TOK_GT) || check(p, TOK_APPEND) ||
         check(p, TOK_LT) || check(p, TOK_SEMI) || check(p, TOK_AMPERSAND)) {
@@ -623,7 +622,7 @@ static ASTNode *parse_primary(Parser *p) {
             return n;
         }
 
-        /* $in: treat the 'in' keyword as an identifier after $ */
+        /* $in: 'in' keyword as identifier after $ */
         if (parser_match(p, TOK_IN)) {
             ASTNode *n = node_new(p, AST_IDENT);
             n->name = arena_strndup(p->arena, "in", 2);
@@ -685,7 +684,6 @@ static ASTNode *parse_primary(Parser *p) {
             vvec_free(stmts);
             return n;
         } else {
-            /* Parens use parse_cond_chain so pipes/&& work inside (expr) */
             ASTNode *expr = parse_cond_chain(p);
             expect(p, TOK_RPAREN, ")");
             return expr;
@@ -693,7 +691,7 @@ static ASTNode *parse_primary(Parser *p) {
     }
 
     if (parser_match(p, TOK_LBRACE)) {
-        /* Empty braces {} produce an empty record, not a block */
+        /* Empty braces {} = empty record */
         if (check(p, TOK_RBRACE)) {
             parser_advance(p);
             return node_new(p, AST_RECORD);
@@ -904,7 +902,6 @@ static ASTNode *parse_binary(Parser *p, int min_prec) {
     return left;
 }
 
-/* Top-level expression: delegates to pratt parser with min precedence 0 */
 static ASTNode *parse_expression(Parser *p) {
     return parse_binary(p, 0);
 }
@@ -940,7 +937,6 @@ static char *parse_redir_path(Parser *p) {
     return NULL;
 }
 
-/* Parse >, >>, <, <<, <<<, and 2> redirect operators into Redirect struct */
 static void parse_redirects(Parser *p, Redirect *r) {
     memset(r, 0, sizeof(Redirect));
     for (;;) {
@@ -1048,7 +1044,6 @@ static void parse_redirects(Parser *p, Redirect *r) {
     }
 }
 
-/* Build a command call node; decides builtin vs external arg parsing */
 static ASTNode *parse_command(Parser *p) {
 
     ASTNode *n = node_new(p, AST_CALL);
@@ -1162,7 +1157,6 @@ static ASTNode *parse_command(Parser *p) {
     VEX_VEC(ASTNode *) args;
     vvec_init(args);
 
-    /* alias consumes args including && || | so they're part of the alias value */
     bool greedy_args = (strcmp(n->call.cmd_name, "alias") == 0);
 
     while (!check(p, TOK_NEWLINE) && !check(p, TOK_EOF) &&
@@ -1392,7 +1386,6 @@ static ASTNode *parse_try(Parser *p) {
     return n;
 }
 
-/* Chain statements with | or |> into a pipeline node */
 static ASTNode *parse_pipeline(Parser *p) {
     ASTNode *first = parse_statement(p);
     if (!check(p, TOK_PIPE) && !check(p, TOK_BYTE_PIPE)) return first;
@@ -1416,7 +1409,6 @@ static ASTNode *parse_pipeline(Parser *p) {
     return n;
 }
 
-/* Link pipelines with && / || into a conditional chain */
 static ASTNode *parse_cond_chain(Parser *p) {
     ASTNode *first = parse_pipeline(p);
     if (!check(p, TOK_AND_AND) && !check(p, TOK_OR_OR)) return first;
@@ -1444,7 +1436,6 @@ static ASTNode *parse_cond_chain(Parser *p) {
     return n;
 }
 
-/* Dispatch keywords, assignments, commands, and fallback to expressions */
 static ASTNode *parse_statement(Parser *p) {
     skip_newlines(p);
 
@@ -1601,7 +1592,6 @@ static ASTNode *parse_statement(Parser *p) {
             p->alias_depth++;
 
             size_t exp_len = strlen(alias_exp);
-            /* Include current token and everything after it */
             const char *rest = p->current.start;
             size_t rest_len = rest ? strlen(rest) : 0;
             char *expanded = malloc(exp_len + 1 + rest_len + 1);
@@ -1635,7 +1625,6 @@ static ASTNode *parse_statement(Parser *p) {
             bool is_alias = (strcmp(name, "alias") == 0);
             VEX_VEC(ASTNode *) args;
             vvec_init(args);
-            /* alias consumes until ; or newline (so && || work in alias values) */
             while (!check(p, TOK_NEWLINE) && !check(p, TOK_EOF) &&
                    !check(p, TOK_SEMI) &&
                    (is_alias || (
@@ -1676,7 +1665,6 @@ static ASTNode *parse_statement(Parser *p) {
             }
         }
 
-        /* Unknown identifier followed by args: treat as command call */
         if (check(p, TOK_STRING) || check(p, TOK_RAW_STRING) ||
             check(p, TOK_INT) || check(p, TOK_FLOAT) ||
             check(p, TOK_DOLLAR) || check(p, TOK_LBRACKET) ||
@@ -1728,7 +1716,6 @@ ASTNode *parser_parse(Parser *p) {
     return block;
 }
 
-/* Parse a single interactive line: one cond-chain, optionally backgrounded */
 ASTNode *parser_parse_line(Parser *p) {
     skip_newlines(p);
     if (check(p, TOK_EOF)) return NULL;

@@ -46,7 +46,6 @@ const char *undo_get_trash_dir(void) {
     if (!home) home = "/tmp";
     snprintf(trash_dir, sizeof(trash_dir), "%s/.local/share/vex/trash", home);
 
-    /* Create directory tree */
     char tmp[4096];
     snprintf(tmp, sizeof(tmp), "%s/.local", home);
     mkdir(tmp, 0755);
@@ -61,7 +60,6 @@ const char *undo_get_trash_dir(void) {
 }
 
 static void evict_oldest(void) {
-    /* Permanently delete trashed file if it was an rm */
     if (undo_stack[0].kind == UNDO_RM && undo_stack[0].trash_path) {
         unlink(undo_stack[0].trash_path);
     }
@@ -115,13 +113,12 @@ bool undo_pop(char *msg, size_t msg_len) {
     size_t restored = 0;
     msg[0] = '\0';
 
-    /* Pop all entries with the same timestamp (grouped operation) */
+    /* Grouped: pop all entries with same timestamp */
     while (undo_cnt > 0 && undo_stack[undo_cnt - 1].timestamp == group_ts) {
         e = &undo_stack[undo_cnt - 1];
 
         switch (e->kind) {
         case UNDO_RM: {
-            /* Check if something already exists at original path */
             struct stat st;
             if (stat(e->original_path, &st) == 0) {
                 snprintf(msg, msg_len, "undo: %s already exists, not overwriting",
@@ -131,7 +128,7 @@ bool undo_pop(char *msg, size_t msg_len) {
             }
             if (rename(e->trash_path, e->original_path) != 0) {
                 if (errno == EXDEV) {
-                    /* Cross-device: copy back then remove from trash */
+                    /* EXDEV: cross-device fallback */
                     if (!undo_copy_file(e->trash_path, e->original_path)) {
                         snprintf(msg, msg_len, "undo: failed to restore %s: %s",
                                  e->original_path, strerror(errno));

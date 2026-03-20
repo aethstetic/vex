@@ -5,7 +5,6 @@
 #include <signal.h>
 #include <limits.h>
 
-/* realpath needs _XOPEN_SOURCE >= 500 or _GNU_SOURCE */
 extern char *realpath(const char *path, char *resolved_path);
 #include <time.h>
 #include <math.h>
@@ -30,7 +29,7 @@ static struct {
 } builtin_ht[BUILTIN_HT_SIZE];
 static bool builtin_ht_ready = false;
 
-/* FNV-1a hash for builtin name -> hash table slot mapping */
+/* FNV-1a */
 static uint32_t fnv1a(const char *s) {
     uint32_t h = 2166136261u;
     for (; *s; s++)
@@ -38,7 +37,6 @@ static uint32_t fnv1a(const char *s) {
     return h;
 }
 
-/* Build open-addressing hash table from builtins_table[] for O(1) lookup */
 static void builtin_ht_build(void) {
     memset(builtin_ht, 0, sizeof(builtin_ht));
     for (size_t i = 0; i < builtins_count; i++) {
@@ -58,7 +56,6 @@ static bool is_sh_file(const char *path);
 static bool has_sh_shebang(const char *path);
 VexValue *source_sh_file(EvalCtx *ctx, const char *path);
 
-/* Script-defined commands registered via def-cmd */
 #define MAX_SCRIPT_CMDS 256
 typedef struct {
     char *name;
@@ -255,7 +252,6 @@ VexValue *builtin_hook_list(EvalCtx *ctx, VexValue *input, VexValue **args, size
     return result;
 }
 
-/* def-cmd: register a vex closure as a named command with help text */
 VexValue *builtin_def_cmd(EvalCtx *ctx, VexValue *input, VexValue **args, size_t argc) {
     (void)ctx; (void)input;
     if (argc < 2) return vval_error("def-cmd: expected name and closure");
@@ -336,7 +332,6 @@ const char *script_cmd_description(size_t i) {
 static char *dir_stack[DIR_STACK_MAX];
 static size_t dir_stack_count = 0;
 
-/* Append a single builtin command to builtins_table[] */
 static void register_builtin(const char *name, BuiltinFn fn,
                               const char *usage, const char *desc) {
     builtins_table[builtins_count++] = (BuiltinCmd){name, fn, usage, desc};
@@ -414,7 +409,7 @@ VexValue *builtin_cd(EvalCtx *ctx, VexValue *input, VexValue **args, size_t argc
             free(paths);
         }
         if (!found) {
-            /* Frecency fallback: try fuzzy directory jump */
+            /* Frecency fallback */
             char *fpath = frecency_find(dir);
             if (fpath && chdir(fpath) == 0) {
                 frecency_add(fpath);
@@ -600,7 +595,6 @@ static const char *format_size(off_t size, char *buf, size_t buflen) {
     return buf;
 }
 
-/* Delegate to external binary when builtin sees flags it doesn't handle */
 static VexValue *fallback_external(EvalCtx *ctx, const char *cmd, VexValue **args, size_t argc) {
     char **argv = malloc((argc + 2) * sizeof(char *));
     if (!argv) return vval_error("out of memory");
@@ -622,8 +616,6 @@ static VexValue *fallback_external(EvalCtx *ctx, const char *cmd, VexValue **arg
     return vval_null();
 }
 
-/* Detect dash-prefixed flags to decide whether to fall back to external */
-/* Check if args contain short flags like -n, -e, -E (not arbitrary strings starting with -). */
 static bool has_flag_args(VexValue **args, size_t argc) {
     for (size_t i = 0; i < argc; i++) {
         if (args[i]->type == VEX_VAL_STRING) {
@@ -696,7 +688,6 @@ VexValue *builtin_ls(EvalCtx *ctx, VexValue *input, VexValue **args, size_t argc
     }
     closedir(d);
 
-    /* Sort by size descending */
     for (size_t i = 0; i < list->list.len; i++) {
         for (size_t k = i + 1; k < list->list.len; k++) {
             VexValue *a = list->list.data[i];
@@ -711,9 +702,8 @@ VexValue *builtin_ls(EvalCtx *ctx, VexValue *input, VexValue **args, size_t argc
     }
 
     if (!ctx->in_pipeline) {
-        /* Calculate max column widths */
-        size_t name_w = 4; /* "name" */
-        size_t size_w = 4; /* "size" */
+        size_t name_w = 4;
+        size_t size_w = 4;
         char **size_strs = malloc(list->list.len * sizeof(char *));
         for (size_t i = 0; i < list->list.len; i++) {
             VexValue *rec = list->list.data[i];
@@ -1205,7 +1195,7 @@ VexValue *builtin_str_split(EvalCtx *ctx, VexValue *input, VexValue **args, size
     size_t sep_len = strlen(sep);
 
     if (sep_len == 0) {
-        /* Empty separator: split into individual UTF-8 codepoints */
+        /* Empty sep: split into UTF-8 codepoints */
         while (*s) {
             size_t clen = 1;
             unsigned char c = (unsigned char)*s;
@@ -1571,7 +1561,6 @@ VexValue *builtin_str_length(EvalCtx *ctx, VexValue *input, VexValue **args, siz
     return vval_int((int64_t)count);
 }
 
-/* Encode a Unicode codepoint as UTF-8; returns byte count written */
 static size_t case_utf8_encode(char *buf, uint32_t cp) {
     if (cp < 0x80) { buf[0] = (char)cp; return 1; }
     if (cp < 0x800) {
@@ -1592,7 +1581,6 @@ static size_t case_utf8_encode(char *buf, uint32_t cp) {
     return 4;
 }
 
-/* Decode one UTF-8 codepoint at s[*pos], advancing *pos past it */
 static uint32_t case_utf8_decode(const char *s, size_t *pos) {
     unsigned char c = (unsigned char)s[*pos];
     uint32_t cp;
@@ -1607,7 +1595,6 @@ static uint32_t case_utf8_decode(const char *s, size_t *pos) {
     return cp;
 }
 
-/* Basic Unicode lowercase: ASCII + Latin-1 Supplement ranges */
 static uint32_t unicode_tolower(uint32_t cp) {
     if (cp < 0x80) return (uint32_t)tolower((int)cp);
 
@@ -1617,7 +1604,6 @@ static uint32_t unicode_tolower(uint32_t cp) {
     return cp;
 }
 
-/* Basic Unicode uppercase: ASCII + Latin-1 Supplement ranges */
 static uint32_t unicode_toupper(uint32_t cp) {
     if (cp < 0x80) return (uint32_t)toupper((int)cp);
 
@@ -2271,7 +2257,6 @@ VexValue *builtin_alias(EvalCtx *ctx, VexValue *input, VexValue **args, size_t a
     }
     VexStr name = vval_to_str(args[0]);
 
-    /* Skip '=' if present: "alias la = ls -la" or "alias la ls -la" */
     size_t start = 1;
     if (start < argc && args[start]->type == VEX_VAL_STRING &&
         strcmp(vstr_data(&args[start]->string), "=") == 0)
@@ -2433,7 +2418,6 @@ typedef struct {
 static CompSpec comp_specs[256];
 static size_t comp_spec_count = 0;
 
-/* Register a static word list as tab-completion spec for a command */
 static void comp_spec_register_words(const char *cmd, const char *const *word_list) {
     if (comp_spec_count >= 256) return;
     size_t n = 0;
@@ -2449,12 +2433,10 @@ static void comp_spec_register_words(const char *cmd, const char *const *word_li
     comp_spec_count++;
 }
 
-/* Non-static wrapper so native plugins can register completions */
 void plugin_register_completion(const char *cmd, const char *const *words) {
     comp_spec_register_words(cmd, words);
 }
 
-/* Populate completion specs for common tools (git, docker, cargo, etc.) */
 static void register_default_completions(void) {
 
     static const char *const git_cmds[] = {
@@ -3756,7 +3738,6 @@ static void register_default_completions(void) {
 
 static bool comp_defaults_loaded = false;
 
-/* Lazy-init: load default completion specs on first tab-complete */
 static void comp_ensure_defaults(void) {
     if (!comp_defaults_loaded) {
         comp_defaults_loaded = true;
@@ -3786,7 +3767,6 @@ int comp_spec_get_kind(const char *cmd) {
     return (int)spec->kind;
 }
 
-/* Track commands we've already tried --help on */
 #define HELP_TRIED_MAX 256
 static char *help_tried[HELP_TRIED_MAX];
 static size_t help_tried_count = 0;
@@ -3802,7 +3782,6 @@ static void help_mark_tried(const char *cmd) {
         help_tried[help_tried_count++] = strdup(cmd);
 }
 
-/* Run "cmd --help" and capture stdout+stderr, with timeout */
 static char *run_help_capture(const char *cmd_path) {
     int pipefd[2];
     if (pipe(pipefd) != 0) return NULL;
@@ -3815,27 +3794,22 @@ static char *run_help_capture(const char *cmd_path) {
     }
 
     if (pid == 0) {
-        /* Child */
         close(pipefd[0]);
         dup2(pipefd[1], STDOUT_FILENO);
         dup2(pipefd[1], STDERR_FILENO);
         close(pipefd[1]);
 
-        /* Close stdin to prevent interactive prompts */
         int devnull = open("/dev/null", O_RDONLY);
         if (devnull >= 0) { dup2(devnull, STDIN_FILENO); close(devnull); }
 
-        /* Timeout: kill self after 2 seconds */
         alarm(2);
 
         execlp(cmd_path, cmd_path, "--help", (char *)NULL);
         _exit(127);
     }
 
-    /* Parent */
     close(pipefd[1]);
 
-    /* Read up to 64KB */
     size_t cap = 4096, len = 0;
     char *buf = malloc(cap);
 
@@ -3852,11 +3826,10 @@ static char *run_help_capture(const char *cmd_path) {
     close(pipefd[0]);
     buf[len] = '\0';
 
-    /* Reap child */
     int status;
     waitpid(pid, &status, 0);
 
-    /* If no output, try -h */
+    /* Fallback to -h */
     if (len == 0) {
         free(buf);
 
@@ -3902,7 +3875,6 @@ bool comp_spec_try_help(const char *cmd) {
     if (help_already_tried(cmd)) return false;
     help_mark_tried(cmd);
 
-    /* Don't try for builtins — they already have specs */
     if (builtin_exists(cmd)) return false;
 
     char *path = find_in_path(cmd);
@@ -3920,7 +3892,6 @@ bool comp_spec_try_help(const char *cmd) {
         return false;
     }
 
-    /* Register as a comp_spec */
     if (comp_spec_count < 256) {
         char **words = malloc((parsed->count + 1) * sizeof(char *));
         for (size_t i = 0; i < parsed->count; i++)
@@ -4919,7 +4890,6 @@ VexValue *builtin_rm(EvalCtx *ctx, VexValue *input,
         if (args[i]->type != VEX_VAL_STRING) continue;
         const char *path = vstr_data(&args[i]->string);
 
-        /* Resolve absolute path before moving */
         char abs[4096];
         if (!realpath(path, abs)) {
             vex_err("rm: %s: %s", path, strerror(errno));
@@ -4927,17 +4897,15 @@ VexValue *builtin_rm(EvalCtx *ctx, VexValue *input,
             return vval_error(strerror(errno));
         }
 
-        /* Build trash path */
         const char *base = strrchr(abs, '/');
         base = base ? base + 1 : abs;
         char trash_path[4096];
         snprintf(trash_path, sizeof(trash_path), "%s/%ld_%s", tdir, (long)now, base);
 
-        /* Move to trash instead of deleting */
         if (rename(abs, trash_path) == 0) {
             undo_push_rm(abs, trash_path, now);
         } else if (errno == EXDEV) {
-            /* Cross-device: copy then unlink */
+            /* EXDEV: cross-device fallback */
             if (copy_file(abs, trash_path) && unlink(abs) == 0) {
                 undo_push_rm(abs, trash_path, now);
             } else {
@@ -4946,7 +4914,6 @@ VexValue *builtin_rm(EvalCtx *ctx, VexValue *input,
                 return vval_error(strerror(errno));
             }
         } else {
-            /* Trash failed, fall back to permanent delete */
             if (unlink(path) != 0) {
                 vex_err("rm: %s: %s", path, strerror(errno));
                 ctx->had_error = true;
@@ -4990,7 +4957,6 @@ VexValue *builtin_cp(EvalCtx *ctx, VexValue *input,
         ctx->had_error = true;
         return vval_error(strerror(errno));
     }
-    /* Record for undo */
     char abs_dst[4096];
     if (realpath(dst, abs_dst))
         undo_push_cp(abs_dst, time(NULL));
@@ -5009,7 +4975,6 @@ VexValue *builtin_mv(EvalCtx *ctx, VexValue *input,
     }
     const char *src = vstr_data(&args[0]->string);
     const char *dst = vstr_data(&args[1]->string);
-    /* Resolve src absolute path before rename */
     char abs_src[4096];
     if (!realpath(src, abs_src)) {
         vex_err("mv: %s: %s", src, strerror(errno));
@@ -5021,7 +4986,6 @@ VexValue *builtin_mv(EvalCtx *ctx, VexValue *input,
         ctx->had_error = true;
         return vval_error(strerror(errno));
     }
-    /* Resolve dst absolute path after rename */
     char abs_dst[4096];
     if (realpath(dst, abs_dst))
         undo_push_mv(abs_src, abs_dst, time(NULL));
@@ -8230,7 +8194,6 @@ static int watch_get_term_cols(void) {
     return 80;
 }
 
-/* Render a list of records as a table, optionally highlighting diffs from prev */
 static void watch_render_table(VexValue *data, VexValue *prev) {
     if (!data || data->type != VEX_VAL_LIST || vval_list_len(data) == 0) {
         if (data) {
@@ -8240,7 +8203,6 @@ static void watch_render_table(VexValue *data, VexValue *prev) {
         return;
     }
 
-    /* Check if it's a table (list of records) */
     size_t data_len = vval_list_len(data);
     bool is_table = true;
     for (size_t i = 0; i < data_len; i++) {
@@ -8257,7 +8219,6 @@ static void watch_render_table(VexValue *data, VexValue *prev) {
         return;
     }
 
-    /* Collect columns */
     size_t col_cap = 32, col_count = 0;
     char **cols = malloc(col_cap * sizeof(char *));
 
@@ -8281,7 +8242,6 @@ static void watch_render_table(VexValue *data, VexValue *prev) {
         }
     }
 
-    /* Build cells and measure widths */
     size_t *widths = calloc(col_count, sizeof(size_t));
     for (size_t c = 0; c < col_count; c++)
         widths[c] = strlen(cols[c]);
@@ -8308,7 +8268,6 @@ static void watch_render_table(VexValue *data, VexValue *prev) {
         }
     }
 
-    /* Build prev cells for diff */
     if (prev && prev->type == VEX_VAL_LIST && vval_list_len(prev) > 0) {
         prev_row_count = vval_list_len(prev);
         prev_cells = malloc(prev_row_count * sizeof(char **));
@@ -8329,20 +8288,18 @@ static void watch_render_table(VexValue *data, VexValue *prev) {
         }
     }
 
-    /* Cap column widths to fit terminal */
     int term_cols = watch_get_term_cols();
-    size_t separators = col_count > 1 ? (col_count - 1) * 3 : 0; /* " | " */
+    size_t separators = col_count > 1 ? (col_count - 1) * 3 : 0;
     size_t total_w = separators;
     for (size_t c = 0; c < col_count; c++) total_w += widths[c];
 
     if (total_w > (size_t)term_cols && col_count > 0) {
-        /* Shrink widest columns until it fits */
         while (total_w > (size_t)term_cols) {
             size_t widest = 0;
             for (size_t c = 1; c < col_count; c++) {
                 if (widths[c] > widths[widest]) widest = c;
             }
-            if (widths[widest] <= 3) break; /* can't shrink further */
+            if (widths[widest] <= 3) break;
             size_t excess = total_w - (size_t)term_cols;
             size_t shrink = excess < widths[widest] - 3 ? excess : widths[widest] - 3;
             widths[widest] -= shrink;
@@ -8350,7 +8307,6 @@ static void watch_render_table(VexValue *data, VexValue *prev) {
         }
     }
 
-    /* Print header */
     printf("\033[1m");
     for (size_t c = 0; c < col_count; c++) {
         if (c > 0) printf(" \033[90m|\033[0;1m ");
@@ -8364,7 +8320,6 @@ static void watch_render_table(VexValue *data, VexValue *prev) {
     }
     printf("\033[0m\n");
 
-    /* Separator */
     printf("\033[90m");
     for (size_t c = 0; c < col_count; c++) {
         if (c > 0) printf("-+-");
@@ -8372,7 +8327,6 @@ static void watch_render_table(VexValue *data, VexValue *prev) {
     }
     printf("\033[0m\n");
 
-    /* Rows with diff highlighting */
     for (size_t i = 0; i < row_count; i++) {
         for (size_t c = 0; c < col_count; c++) {
             if (c > 0) printf(" \033[90m|\033[0m ");
@@ -8382,7 +8336,7 @@ static void watch_render_table(VexValue *data, VexValue *prev) {
                 if (strcmp(cells[i][c], prev_cells[i][c]) != 0)
                     changed = true;
             } else if (prev_cells && i >= prev_row_count) {
-                changed = true; /* new row */
+                changed = true;
             }
 
             size_t w = display_width_str(cells[i][c]);
@@ -8393,7 +8347,6 @@ static void watch_render_table(VexValue *data, VexValue *prev) {
                     printf("%s", cells[i][c]);
                 for (size_t p = w; p < widths[c]; p++) putchar(' ');
             } else {
-                /* Truncate with ".." */
                 size_t max = widths[c] > 2 ? widths[c] - 2 : 0;
                 if (changed) printf("\033[1;33m");
                 printf("%.*s..", (int)max, cells[i][c]);
@@ -8403,7 +8356,6 @@ static void watch_render_table(VexValue *data, VexValue *prev) {
         putchar('\n');
     }
 
-    /* Cleanup */
     for (size_t i = 0; i < row_count; i++) {
         for (size_t c = 0; c < col_count; c++) free(cells[i][c]);
         free(cells[i]);
@@ -8433,7 +8385,6 @@ VexValue *builtin_watch(EvalCtx *ctx, VexValue *input, VexValue **args, size_t a
         return vval_null();
     }
 
-    /* Parse interval from first arg */
     double interval = 2.0;
     size_t cmd_start = 0;
 
@@ -8445,7 +8396,6 @@ VexValue *builtin_watch(EvalCtx *ctx, VexValue *input, VexValue **args, size_t a
         cmd_start = 1;
     } else if (args[0]->type == VEX_VAL_STRING) {
         const char *s = vstr_data(&args[0]->string);
-        /* Parse duration strings: "2s", "500ms", "1.5s" */
         char *end;
         double val = strtod(s, &end);
         if (end != s) {
@@ -8457,7 +8407,6 @@ VexValue *builtin_watch(EvalCtx *ctx, VexValue *input, VexValue **args, size_t a
                 interval = val;
             cmd_start = 1;
         } else if (strcmp(s, "-n") == 0 && argc >= 2) {
-            /* Legacy: watch -n 2 command */
             if (args[1]->type == VEX_VAL_INT)
                 interval = (double)args[1]->integer;
             else if (args[1]->type == VEX_VAL_FLOAT)
@@ -8470,7 +8419,6 @@ VexValue *builtin_watch(EvalCtx *ctx, VexValue *input, VexValue **args, size_t a
 
     if (interval < 0.1) interval = 0.1;
 
-    /* Build command string from remaining args */
     VexStr cmd = vstr_empty();
 
     for (size_t i = cmd_start; i < argc; i++) {
@@ -8480,7 +8428,6 @@ VexValue *builtin_watch(EvalCtx *ctx, VexValue *input, VexValue **args, size_t a
     }
     const char *display_cmd = vstr_data(&cmd);
 
-    /* Set up Ctrl+C handler */
     watch_interrupted = 0;
     struct sigaction sa, old_sa;
     memset(&sa, 0, sizeof(sa));
@@ -8492,7 +8439,6 @@ VexValue *builtin_watch(EvalCtx *ctx, VexValue *input, VexValue **args, size_t a
     VexValue *prev_result = NULL;
 
     while (!watch_interrupted) {
-        /* Clear screen and print header */
         printf("\033[2J\033[H");
         time_t now = time(NULL);
         char *timestr = ctime(&now);
@@ -8522,11 +8468,10 @@ VexValue *builtin_watch(EvalCtx *ctx, VexValue *input, VexValue **args, size_t a
         }
 
         if (prev_result) vval_release(prev_result);
-        prev_result = result; /* takes ownership of result's refcount */
+        prev_result = result;
 
         fflush(stdout);
 
-        /* Interruptible sleep */
         struct timespec ts;
         ts.tv_sec = (time_t)interval;
         ts.tv_nsec = (long)((interval - (double)ts.tv_sec) * 1e9);
@@ -8544,10 +8489,8 @@ VexValue *builtin_watch(EvalCtx *ctx, VexValue *input, VexValue **args, size_t a
     if (prev_result) vval_release(prev_result);
     vstr_free(&cmd);
 
-    /* Restore signal handler */
     sigaction(SIGINT, &old_sa, NULL);
 
-    /* Final clear to show clean exit */
     printf("\033[2J\033[H");
     fflush(stdout);
 
@@ -14568,11 +14511,9 @@ VexValue *builtin_pkg(EvalCtx *ctx, VexValue *input, VexValue **args, size_t arg
         if (!strstr(url, "://")) {
             const char *slash = strchr(url, '/');
             if (slash && !strchr(slash + 1, '/')) {
-                /* user/repo -> https://github.com/user/repo */
                 snprintf(expanded_url, sizeof(expanded_url),
                          "https://github.com/%s", url);
             } else if (!slash) {
-                /* bare name -> https://github.com/vex-shell/name */
                 snprintf(expanded_url, sizeof(expanded_url),
                          "https://github.com/vex-shell/%s", url);
             } else {
@@ -14657,7 +14598,6 @@ VexValue *builtin_pkg(EvalCtx *ctx, VexValue *input, VexValue **args, size_t arg
             vval_record_set(rec, "has_init", has_init);
             vval_release(has_init);
 
-            /* Parse package.vex metadata if present */
             char pkg_path[PATH_MAX];
             snprintf(pkg_path, sizeof(pkg_path), "%s/package.vex", full);
             FILE *pkg_fp = fopen(pkg_path, "r");
@@ -14673,12 +14613,10 @@ VexValue *builtin_pkg(EvalCtx *ctx, VexValue *input, VexValue **args, size_t arg
                     snprintf(needle, sizeof(needle), "%s:", keys[ki]);
                     char *pos = strstr(pkg_buf, needle);
                     if (!pos) {
-                        /* try with space before colon */
                         snprintf(needle, sizeof(needle), "%s :", keys[ki]);
                         pos = strstr(pkg_buf, needle);
                     }
                     if (pos) {
-                        /* find opening quote after the colon */
                         char *q1 = strchr(pos + strlen(needle), '"');
                         if (q1) {
                             char *q2 = strchr(q1 + 1, '"');
@@ -14779,7 +14717,6 @@ VexValue *builtin_pkg(EvalCtx *ctx, VexValue *input, VexValue **args, size_t arg
         char conf_path[PATH_MAX];
         snprintf(conf_path, sizeof(conf_path), "%s/plugins.vex", conf_dir);
 
-        /* Check if already enabled */
         FILE *f = fopen(conf_path, "r");
         if (f) {
             char line[256];
@@ -14816,7 +14753,6 @@ VexValue *builtin_pkg(EvalCtx *ctx, VexValue *input, VexValue **args, size_t arg
         FILE *f = fopen(conf_path, "r");
         if (!f) return vval_error("pkg disable: plugins.vex not found");
 
-        /* Read all lines, rewrite without the target */
         char lines[256][256];
         int count = 0;
         bool found = false;
@@ -14857,7 +14793,6 @@ void pkg_autoload(EvalCtx *ctx) {
     const char *home = getenv("HOME");
     if (!home) return;
 
-    /* Autoload from ~/.config/vex/plugins/ */
     char plugins_dir[PATH_MAX];
     snprintf(plugins_dir, sizeof(plugins_dir), "%s/.config/vex/plugins", home);
 
@@ -14868,7 +14803,6 @@ void pkg_autoload(EvalCtx *ctx) {
     while ((ent = readdir(d)) != NULL) {
         if (ent->d_name[0] == '.') continue;
 
-        /* Try init.vex inside subdirectory */
         char init_path[PATH_MAX];
         snprintf(init_path, sizeof(init_path), "%s/%s/init.vex",
                  plugins_dir, ent->d_name);
@@ -14882,7 +14816,6 @@ void pkg_autoload(EvalCtx *ctx) {
             continue;
         }
 
-        /* Try .vex file directly */
         snprintf(init_path, sizeof(init_path), "%s/%s",
                  plugins_dir, ent->d_name);
         size_t nlen = strlen(ent->d_name);
@@ -15261,7 +15194,6 @@ VexValue *builtin_theme(EvalCtx *ctx, VexValue *input, VexValue **args, size_t a
     return vval_error("theme not found");
 }
 
-/* Register all ~400 builtins and build the hash table for lookup */
 void builtins_init(void) {
     register_builtin("echo",    builtin_echo,    "echo [args...]",       "Print arguments");
     register_builtin("cd",      builtin_cd,      "cd [dir]",             "Change directory");
@@ -15746,7 +15678,6 @@ void builtins_init(void) {
     builtin_ht_build();
 }
 
-/* O(1) builtin dispatch via FNV-1a open-addressing hash table */
 const BuiltinCmd *builtin_lookup(const char *name) {
     if (!builtin_ht_ready) builtin_ht_build();
     uint32_t slot = fnv1a(name) & (BUILTIN_HT_SIZE - 1);

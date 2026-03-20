@@ -252,7 +252,6 @@ bool vval_truthy(VexValue *v) {
     }
 }
 
-/* Deep structural equality for any two VexValues. */
 bool vval_equal(VexValue *a, VexValue *b) {
     if (a == b) return true;
     if (!a || !b) return false;

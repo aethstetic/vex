@@ -1,4 +1,3 @@
-/* Master include: forward declarations and all vex headers. */
 #ifndef VEX_H
 #define VEX_H
 
