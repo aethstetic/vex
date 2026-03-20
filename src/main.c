@@ -884,16 +884,6 @@ static void repl(EvalCtx *ctx) {
             free(cont);
         }
 
-        edit_history_add(&editor, line);
-
-        if (hist_path) {
-            FILE *hf = fopen(hist_path, "a");
-            if (hf) {
-                fprintf(hf, "%s\n", line);
-                fclose(hf);
-            }
-        }
-
         /* OSC 133;C execution start */
         write(STDOUT_FILENO, "\033]133;C\007", 8);
 
@@ -909,6 +899,18 @@ static void repl(EvalCtx *ctx) {
             int osc_len = snprintf(osc_d, sizeof(osc_d),
                                    "\033]133;D;%d\007", ctx->last_exit_code);
             write(STDOUT_FILENO, osc_d, (size_t)osc_len);
+        }
+
+        /* Only save successful commands to history */
+        if (!ctx->had_error && ctx->last_exit_code == 0) {
+            edit_history_add(&editor, line);
+            if (hist_path) {
+                FILE *hf = fopen(hist_path, "a");
+                if (hf) {
+                    fprintf(hf, "%s\n", line);
+                    fclose(hf);
+                }
+            }
         }
 
         {
