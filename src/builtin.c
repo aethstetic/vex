@@ -12440,14 +12440,19 @@ VexValue *builtin_hash_crc32(EvalCtx *ctx, VexValue *input, VexValue **args, siz
 VexValue *builtin_df_cmd(EvalCtx *ctx, VexValue *input, VexValue **args, size_t argc) {
     if (has_flag_args(args, argc))
         return fallback_external(ctx, "df", args, argc);
-    (void)ctx; (void)input;
+    (void)input;
     const char *path = "/";
-    if (argc > 0 && args[0]->type == VEX_VAL_STRING)
-        path = vstr_data(&args[0]->string);
+    if (argc > 0 && args[0]->type == VEX_VAL_STRING) {
+        const char *arg = vstr_data(&args[0]->string);
+        if (arg[0] == '-') return fallback_external(ctx, "df", args, argc);
+        path = arg;
+    }
 
     struct statvfs st;
-    if (statvfs(path, &st) != 0)
+    if (statvfs(path, &st) != 0) {
+        vex_err("df: %s: %s", path, strerror(errno));
         return vval_error("df: failed to stat filesystem");
+    }
 
     VexValue *rec = vval_record();
     vval_record_set(rec, "path", vval_string_cstr(path));
