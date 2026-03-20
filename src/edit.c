@@ -385,6 +385,9 @@ static const char *find_history_hint(EditState *e) {
     }
     if (!has_space) return NULL;
 
+    /* Don't suggest while typing flags */
+    if (e->buf.buf[e->buf.len - 1] == '-') return NULL;
+
     /* Skip the most recent entry to avoid suggesting what was just run */
     size_t start = e->history.count > 1 ? e->history.count - 1 : 0;
     for (size_t i = start; i > 0; i--) {
@@ -392,6 +395,7 @@ static const char *find_history_hint(EditState *e) {
         if (strncmp(entry, e->buf.buf, e->buf.len) == 0 &&
             strlen(entry) > e->buf.len) {
             const char *hint = entry + e->buf.len;
+            /* Don't suggest flags unless user is already in a flag */
             if (hint[0] == ' ' && hint[1] == '-') continue;
             return hint;
         }
