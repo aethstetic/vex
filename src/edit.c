@@ -378,12 +378,20 @@ static void history_browse_down(EditState *e) {
 static const char *find_history_hint(EditState *e) {
     if (e->buf.len == 0) return NULL;
 
-    for (size_t i = e->history.count; i > 0; i--) {
+    /* Only suggest when buffer has a space (full command + partial args) */
+    bool has_space = false;
+    for (size_t i = 0; i < e->buf.len; i++) {
+        if (e->buf.buf[i] == ' ') { has_space = true; break; }
+    }
+    if (!has_space) return NULL;
+
+    /* Skip the most recent entry to avoid suggesting what was just run */
+    size_t start = e->history.count > 1 ? e->history.count - 1 : 0;
+    for (size_t i = start; i > 0; i--) {
         const char *entry = e->history.entries[i - 1];
         if (strncmp(entry, e->buf.buf, e->buf.len) == 0 &&
             strlen(entry) > e->buf.len) {
             const char *hint = entry + e->buf.len;
-            /* Don't suggest flags unless user typed '-' */
             if (hint[0] == ' ' && hint[1] == '-') continue;
             return hint;
         }
