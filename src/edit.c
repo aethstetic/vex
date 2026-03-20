@@ -392,9 +392,7 @@ static const char *find_history_hint(EditState *e) {
         if (j < e->buf.len && e->buf.buf[j] == '-') return NULL;
     }
 
-    /* Skip the most recent entry to avoid suggesting what was just run */
-    size_t start = e->history.count > 1 ? e->history.count - 1 : 0;
-    for (size_t i = start; i > 0; i--) {
+    for (size_t i = e->history.count; i > 0; i--) {
         const char *entry = e->history.entries[i - 1];
         if (strncmp(entry, e->buf.buf, e->buf.len) == 0 &&
             strlen(entry) > e->buf.len) {
