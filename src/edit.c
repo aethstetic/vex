@@ -2062,6 +2062,7 @@ char *edit_readline(EditState *e, const char *prompt) {
 
             case KEY_CTRL_C:
                 vi_set_cursor_bar();
+                write(STDOUT_FILENO, "\033[K\033[J", 6);
                 edit_disable_raw(e);
                 write(STDOUT_FILENO, "^C\n", 3);
                 e->vi_insert = true;
@@ -2640,6 +2641,7 @@ char *edit_readline(EditState *e, const char *prompt) {
 
         case KEY_CTRL_C:
             if (e->vi_mode) vi_set_cursor_bar();
+            write(STDOUT_FILENO, "\033[K\033[J", 6);
             edit_disable_raw(e);
             write(STDOUT_FILENO, "^C\n", 3);
             if (e->vi_mode) e->vi_insert = true;
