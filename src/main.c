@@ -809,12 +809,37 @@ static void repl(EvalCtx *ctx) {
         edit_history_load(&editor, hist_path);
     }
 
+    /* Config auto-reload: track mtime */
+    static char config_path[4096];
+    static time_t config_mtime = 0;
+    {
+        const char *home = getenv("HOME");
+        if (home) {
+            snprintf(config_path, sizeof(config_path),
+                     "%s/.config/vex/config.vex", home);
+            struct stat st;
+            if (stat(config_path, &st) == 0)
+                config_mtime = st.st_mtime;
+        }
+    }
+
     printf("\033[1mVex Shell\033[0m v%s\n", VEX_VERSION);
     printf("Type 'help' for available commands, 'exit' to quit.\n\n");
 
     for (;;) {
 
         job_notify();
+
+        /* Auto-reload config if modified */
+        {
+            struct stat st;
+            if (config_path[0] && stat(config_path, &st) == 0 &&
+                st.st_mtime != config_mtime) {
+                config_mtime = st.st_mtime;
+                run_file(ctx, config_path);
+                ctx->had_error = false;
+            }
+        }
 
         if (vex_got_sigwinch) {
             vex_got_sigwinch = 0;
