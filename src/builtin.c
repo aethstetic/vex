@@ -532,13 +532,19 @@ VexValue *builtin_dirs(EvalCtx *ctx, VexValue *input, VexValue **args, size_t ar
     return dirs_print(ctx);
 }
 
+static volatile bool vex_exit_requested = false;
+static int vex_exit_code = 0;
+
+bool vex_should_exit(void) { return vex_exit_requested; }
+int vex_get_exit_code(void) { return vex_exit_code; }
+
 VexValue *builtin_exit(EvalCtx *ctx, VexValue *input, VexValue **args, size_t argc) {
     (void)ctx; (void)input;
-    int code = 0;
+    vex_exit_code = 0;
     if (argc > 0 && args[0]->type == VEX_VAL_INT) {
-        code = (int)args[0]->integer;
+        vex_exit_code = (int)args[0]->integer;
     }
-    exit(code);
+    vex_exit_requested = true;
     return vval_null();
 }
 

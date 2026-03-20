@@ -12,6 +12,8 @@ typedef struct {
 } BuiltinCmd;
 
 void builtins_init(void);
+bool vex_should_exit(void);
+int vex_get_exit_code(void);
 
 const BuiltinCmd *builtin_lookup(const char *name);
 

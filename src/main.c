@@ -918,6 +918,8 @@ static void repl(EvalCtx *ctx) {
         }
         free(line);
 
+        if (vex_should_exit()) break;
+
         if (vex_opt_errexit() && (ctx->had_error || ctx->last_exit_code != 0)) {
             break;
         }
