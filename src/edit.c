@@ -385,13 +385,6 @@ static const char *find_history_hint(EditState *e) {
     }
     if (!has_space) return NULL;
 
-    /* Don't suggest while typing flags */
-    {
-        size_t j = e->buf.len;
-        while (j > 0 && e->buf.buf[j - 1] != ' ') j--;
-        if (j < e->buf.len && e->buf.buf[j] == '-') return NULL;
-    }
-
     for (size_t i = e->history.count; i > 0; i--) {
         const char *entry = e->history.entries[i - 1];
         if (strncmp(entry, e->buf.buf, e->buf.len) == 0 &&

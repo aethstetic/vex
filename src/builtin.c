@@ -627,15 +627,20 @@ static bool has_flag_args(VexValue **args, size_t argc) {
         if (args[i]->type == VEX_VAL_STRING) {
             const char *s = vstr_data(&args[i]->string);
             size_t len = vstr_len(&args[i]->string);
-            if (len >= 2 && len <= 3 && s[0] == '-') {
-                bool all_alpha = true;
-                for (size_t j = 1; j < len; j++) {
-                    if (!((s[j] >= 'a' && s[j] <= 'z') || (s[j] >= 'A' && s[j] <= 'Z'))) {
-                        all_alpha = false;
-                        break;
+            if (len >= 2 && s[0] == '-') {
+                /* Short flags: -l, -la */
+                if (len <= 3) {
+                    bool all_alpha = true;
+                    for (size_t j = 1; j < len; j++) {
+                        if (!((s[j] >= 'a' && s[j] <= 'z') || (s[j] >= 'A' && s[j] <= 'Z'))) {
+                            all_alpha = false;
+                            break;
+                        }
                     }
+                    if (all_alpha) return true;
                 }
-                if (all_alpha) return true;
+                /* Long flags: --help, --version, --color=always */
+                if (len >= 3 && s[1] == '-') return true;
             }
         }
     }
