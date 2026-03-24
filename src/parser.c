@@ -1502,6 +1502,42 @@ static ASTNode *parse_statement(Parser *p) {
         return n;
     }
 
+    /* ./path or /path — run as external command */
+    if ((check(p, TOK_DOT) && p->current.start[1] == '/') ||
+        (check(p, TOK_SLASH))) {
+        /* Build command path from bare word tokens */
+        const char *start = p->current.start;
+        const char *end = start + p->current.length;
+        parser_advance(p);
+        while (is_bare_word_token(p->current.type) &&
+               p->current.start == end) {
+            end = p->current.start + p->current.length;
+            parser_advance(p);
+        }
+
+        ASTNode *n = node_new(p, AST_EXTERNAL_CALL);
+        n->call.cmd_name = arena_strndup(p->arena, start, (size_t)(end - start));
+        VEX_VEC(ASTNode *) args;
+        vvec_init(args);
+        while (!check(p, TOK_NEWLINE) && !check(p, TOK_PIPE) &&
+               !check(p, TOK_BYTE_PIPE) && !check(p, TOK_SEMI) &&
+               !check(p, TOK_EOF) && !check(p, TOK_RBRACE) &&
+               !check(p, TOK_RPAREN) &&
+               !check(p, TOK_AMPERSAND) && !check(p, TOK_AND_AND) &&
+               !check(p, TOK_OR_OR) &&
+               !check(p, TOK_GT) && !check(p, TOK_APPEND) && !check(p, TOK_LT) &&
+               !check(p, TOK_HEREDOC) && !check(p, TOK_HEREDOC_STRING) &&
+               !is_stderr_redirect(p)) {
+            vvec_push(args, parse_external_arg(p));
+        }
+        n->call.arg_count = args.len;
+        n->call.args = arena_alloc(p->arena, args.len * sizeof(ASTNode *));
+        memcpy(n->call.args, args.data, args.len * sizeof(ASTNode *));
+        vvec_free(args);
+        parse_redirects(p, &n->call.redir);
+        return n;
+    }
+
     if (parser_match(p, TOK_CARET)) {
         expect_cmd_name(p);
         ASTNode *n = node_new(p, AST_EXTERNAL_CALL);
