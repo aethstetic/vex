@@ -12469,6 +12469,10 @@ VexValue *builtin_df_cmd(EvalCtx *ctx, VexValue *input, VexValue **args, size_t 
     double pct = 100.0 * (double)(st.f_blocks - st.f_bfree) / (double)st.f_blocks;
     vval_record_set(rec, "use_percent", vval_float(pct));
 
+    if (!ctx->in_pipeline) {
+        vval_print(rec, stdout);
+        printf("\n");
+    }
     return rec;
 }
 
@@ -12497,6 +12501,10 @@ VexValue *builtin_free_cmd(EvalCtx *ctx, VexValue *input, VexValue **args, size_
     vval_record_set(rec, "swap", swap);
     vval_release(swap);
 
+    if (!ctx->in_pipeline) {
+        vval_print(rec, stdout);
+        printf("\n");
+    }
     return rec;
 }
 

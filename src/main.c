@@ -713,10 +713,7 @@ static void run_command(EvalCtx *ctx, const char *line) {
                       find_in_path(stmt->call.cmd_name)));
     if (suppress) is_builtin_call = true;
     if (result && result->type != VEX_VAL_NULL) {
-        /* Always print structured data (records/lists), suppress scalar builtin results */
-        bool is_structured = (result->type == VEX_VAL_RECORD ||
-                              result->type == VEX_VAL_LIST);
-        if (is_pipeline || !is_builtin_call || is_structured) {
+        if (is_pipeline || !is_builtin_call) {
             vval_print(result, stdout);
             printf("\n");
         }
@@ -756,9 +753,7 @@ static void run_string(EvalCtx *ctx, const char *source) {
                         (last_stmt->kind == AST_CALL && !is_builtin_call &&
                          find_in_path(last_stmt->call.cmd_name)));
         if (suppress) is_builtin_call = true;
-        bool is_structured = (result->type == VEX_VAL_RECORD ||
-                              result->type == VEX_VAL_LIST);
-        if (is_pipeline || !is_builtin_call || is_structured) {
+        if (is_pipeline || !is_builtin_call) {
             vval_print(result, stdout);
             printf("\n");
         }
