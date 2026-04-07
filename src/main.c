@@ -737,6 +737,7 @@ static void run_string(EvalCtx *ctx, const char *source) {
         last_stmt = stmt;
         result = eval(ctx, stmt);
 
+        if (vex_should_exit()) break;
         if (vex_opt_errexit() && (ctx->had_error || ctx->last_exit_code != 0)) {
             break;
         }
@@ -1196,5 +1197,5 @@ int main(int argc, char **argv) {
     undo_free();
     plugin_cleanup();
     job_cleanup();
-    return 0;
+    return vex_should_exit() ? vex_get_exit_code() : ctx.last_exit_code;
 }
