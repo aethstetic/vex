@@ -1052,9 +1052,11 @@ static ASTNode *parse_command(Parser *p) {
     char *ext_path = find_in_path(n->call.cmd_name);
     bool in_path = (ext_path != NULL);
     free(ext_path);
+    bool is_plugin = plugin_cmd_exists(n->call.cmd_name);
     bool is_builtin = builtin_exists(n->call.cmd_name) ||
-                      plugin_cmd_exists(n->call.cmd_name) ||
+                      is_plugin ||
                       !in_path;
+    if (is_plugin) is_builtin = false;
 
     if (strcmp(n->call.cmd_name, "ls") == 0 ||
         strcmp(n->call.cmd_name, "cd") == 0 ||
