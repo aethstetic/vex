@@ -18,6 +18,9 @@
 
   paru:
   paru -S vex-shell-git
+
+  nix:
+  nix run github:aethstetic/vexnix run github:aethstetic/vex
   ```
 
   To use as your login shell:
