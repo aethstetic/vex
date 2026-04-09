@@ -15196,18 +15196,35 @@ static VexValue *list_all_themes(void) {
     return list;
 }
 
+static void print_theme_list(VexValue *list) {
+    size_t len = vval_list_len(list);
+    for (size_t i = 0; i < len; i++) {
+        VexValue *rec = vval_list_get(list, i);
+        VexValue *name = vval_record_get(rec, "name");
+        VexValue *desc = vval_record_get(rec, "description");
+        VexValue *src = vval_record_get(rec, "source");
+        printf("  \033[1;36m%-16s\033[0m \033[90m%-8s\033[0m %s\n",
+               name ? vstr_data(&name->string) : "?",
+               src ? vstr_data(&src->string) : "",
+               desc ? vstr_data(&desc->string) : "");
+    }
+}
+
 VexValue *builtin_theme(EvalCtx *ctx, VexValue *input, VexValue **args, size_t argc) {
     (void)input;
 
     if (argc < 1 || args[0]->type != VEX_VAL_STRING) {
-
-        return list_all_themes();
+        VexValue *list = list_all_themes();
+        if (!ctx->in_pipeline) print_theme_list(list);
+        return ctx->in_pipeline ? list : vval_null();
     }
 
     const char *name = vstr_data(&args[0]->string);
 
     if (strcmp(name, "list") == 0) {
-        return list_all_themes();
+        VexValue *list = list_all_themes();
+        if (!ctx->in_pipeline) print_theme_list(list);
+        return ctx->in_pipeline ? list : vval_null();
     }
 
     if (strcmp(name, "save") == 0) {
