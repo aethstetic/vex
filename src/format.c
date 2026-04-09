@@ -47,6 +47,23 @@ static VexValue *json_parse_value(JsonParser *p);
 
 static VexValue *json_parse_string(JsonParser *p) {
     if (!json_match(p, '"')) { p->had_error = true; return vval_null(); }
+
+    /* Fast path: scan for end quote without escapes */
+    size_t start = p->pos;
+    bool has_escape = false;
+    while (p->pos < p->len && p->src[p->pos] != '"') {
+        if (p->src[p->pos] == '\\') { has_escape = true; break; }
+        p->pos++;
+    }
+
+    if (!has_escape) {
+        VexValue *result = vval_string(vstr_newn(p->src + start, p->pos - start));
+        p->pos++; /* skip closing quote */
+        return result;
+    }
+
+    /* Slow path: string has escapes */
+    p->pos = start;
     VexStr out = vstr_empty();
     while (p->pos < p->len && p->src[p->pos] != '"') {
         if (p->src[p->pos] == '\\') {
@@ -62,14 +79,12 @@ static VexValue *json_parse_string(JsonParser *p) {
             case 'r':  vstr_append_char(&out, '\r'); break;
             case 't':  vstr_append_char(&out, '\t'); break;
             case 'u': {
-
                 p->pos++;
                 if (p->pos + 4 > p->len) { p->had_error = true; break; }
                 char hex[5] = {0};
                 memcpy(hex, p->src + p->pos, 4);
                 unsigned long cp = strtoul(hex, NULL, 16);
                 p->pos += 3;
-
                 char utf8[4];
                 if (cp < 0x80) {
                     utf8[0] = (char)cp;
@@ -91,8 +106,11 @@ static VexValue *json_parse_string(JsonParser *p) {
             }
             p->pos++;
         } else {
-            vstr_append_char(&out, p->src[p->pos]);
-            p->pos++;
+            /* Bulk copy plain characters */
+            size_t chunk = p->pos;
+            while (p->pos < p->len && p->src[p->pos] != '"' && p->src[p->pos] != '\\')
+                p->pos++;
+            vstr_append(&out, p->src + chunk, p->pos - chunk);
         }
     }
     if (!json_match(p, '"')) p->had_error = true;
@@ -100,6 +118,23 @@ static VexValue *json_parse_string(JsonParser *p) {
 }
 
 static char *json_parse_key(JsonParser *p) {
+    json_skip_ws(p);
+    if (p->pos >= p->len || p->src[p->pos] != '"') {
+        p->had_error = true;
+        return strdup("");
+    }
+    p->pos++;
+    /* Fast path: no escapes in key */
+    size_t start = p->pos;
+    while (p->pos < p->len && p->src[p->pos] != '"' && p->src[p->pos] != '\\')
+        p->pos++;
+    if (p->pos < p->len && p->src[p->pos] == '"') {
+        char *result = strndup(p->src + start, p->pos - start);
+        p->pos++;
+        return result;
+    }
+    /* Slow path: fall back to full string parse */
+    p->pos = start - 1;
     VexValue *v = json_parse_string(p);
     VexStr s = vval_to_str(v);
     char *result = strdup(vstr_data(&s));
@@ -111,8 +146,10 @@ static char *json_parse_key(JsonParser *p) {
 static VexValue *json_parse_number(JsonParser *p) {
     json_skip_ws(p);
     const char *start = p->src + p->pos;
+    char *end;
     bool is_float = false;
 
+    /* Scan to determine int vs float */
     if (p->pos < p->len && p->src[p->pos] == '-') p->pos++;
     while (p->pos < p->len && p->src[p->pos] >= '0' && p->src[p->pos] <= '9') p->pos++;
     if (p->pos < p->len && p->src[p->pos] == '.') {
@@ -127,14 +164,8 @@ static VexValue *json_parse_number(JsonParser *p) {
         while (p->pos < p->len && p->src[p->pos] >= '0' && p->src[p->pos] <= '9') p->pos++;
     }
 
-    char buf[64];
-    size_t nlen = (size_t)(p->src + p->pos - start);
-    if (nlen >= sizeof(buf)) nlen = sizeof(buf) - 1;
-    memcpy(buf, start, nlen);
-    buf[nlen] = '\0';
-
-    if (is_float) return vval_float(strtod(buf, NULL));
-    return vval_int(strtoll(buf, NULL, 10));
+    if (is_float) return vval_float(strtod(start, &end));
+    return vval_int(strtoll(start, &end, 10));
 }
 
 static VexValue *json_parse_array(JsonParser *p) {
