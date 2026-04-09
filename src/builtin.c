@@ -5,7 +5,9 @@
 #include <signal.h>
 #include <limits.h>
 
+#ifndef __APPLE__
 extern char *realpath(const char *path, char *resolved_path);
+#endif
 #include <time.h>
 #include <math.h>
 #include <ctype.h>

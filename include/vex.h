@@ -1,7 +1,11 @@
 #ifndef VEX_H
 #define VEX_H
 
+#ifndef __APPLE__
+#ifndef _POSIX_C_SOURCE
 #define _POSIX_C_SOURCE 200809L
+#endif
+#endif
 
 #include <stdint.h>
 #include <stddef.h>

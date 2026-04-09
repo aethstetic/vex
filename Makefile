@@ -1,7 +1,15 @@
 CC      = cc
-CFLAGS  = -std=c11 -Wall -Wextra -Wpedantic -D_POSIX_C_SOURCE=200809L -Iinclude \
-          -Wno-format-truncation -Wno-unused-function -Wno-unused-parameter -Wno-stringop-truncation
-LDFLAGS = -ldl -lm
+CFLAGS  = -std=c11 -Wall -Wextra -Wpedantic -Iinclude \
+          -Wno-unused-function -Wno-unused-parameter
+
+UNAME_S := $(shell uname -s)
+ifeq ($(UNAME_S),Darwin)
+  CFLAGS  += -D_DARWIN_C_SOURCE
+  LDFLAGS  = -lm
+else
+  CFLAGS  += -D_POSIX_C_SOURCE=200809L -Wno-format-truncation -Wno-stringop-truncation
+  LDFLAGS  = -ldl -lm
+endif
 
 SRC = src/main.c \
       src/arena.c \
