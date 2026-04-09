@@ -111,6 +111,21 @@ Plugins are C shared libraries that extend vex with new commands.
 ~/.config/vex/plugins/myplugin/init.vex
 ```
 
+Example `init.vex`:
+```
+# Load a compiled C plugin
+use plugin "myplugin.so"
+
+# Or define commands directly
+def-cmd "greet" "greet [name]" "Say hello" {|input, name|
+    let who = if $name != null { $name } else { $USER }
+    "Hello, " + $who + "!"
+}
+
+# Set up completions
+complete myplugin -w "start stop status reload"
+```
+
 **Loading manually:**
 ```
 use plugin "path/to/plugin.so"
