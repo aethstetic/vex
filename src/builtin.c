@@ -2244,6 +2244,21 @@ const char *alias_lookup(const char *name) {
     return NULL;
 }
 
+void alias_register(const char *name, const char *expansion) {
+    for (size_t i = 0; i < alias_count; i++) {
+        if (strcmp(alias_table[i].name, name) == 0) {
+            free(alias_table[i].expansion);
+            alias_table[i].expansion = strdup(expansion);
+            return;
+        }
+    }
+    if (alias_count < 128) {
+        alias_table[alias_count].name = strdup(name);
+        alias_table[alias_count].expansion = strdup(expansion);
+        alias_count++;
+    }
+}
+
 VexValue *builtin_alias(EvalCtx *ctx, VexValue *input, VexValue **args, size_t argc) {
     (void)ctx; (void)input;
     if (argc < 1) {

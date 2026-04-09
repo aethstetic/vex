@@ -1,6 +1,7 @@
 #include "vex.h"
 #include <dlfcn.h>
 #include <stdarg.h>
+#include <unistd.h>
 
 #define MAX_PLUGINS 64
 static void *loaded_plugins[MAX_PLUGINS];
@@ -208,6 +209,56 @@ static void api_register_hook(const char *event, VexPluginCommandFn fn) {
     }
 }
 
+static VexValue *api_run_command(void *ctx, const char *cmd) {
+    EvalCtx *ectx = ctx;
+    VexArena *saved = ectx->arena;
+    VexArena *tmp = arena_create();
+    ectx->arena = tmp;
+    Parser p = parser_init(cmd, tmp);
+    VexValue *result = NULL;
+    for (;;) {
+        ASTNode *stmt = parser_parse_line(&p);
+        if (!stmt || p.had_error) break;
+        if (result) vval_release(result);
+        result = eval(ectx, stmt);
+    }
+    ectx->arena = saved;
+    arena_destroy(tmp);
+    if (!result) return vval_null();
+    return result;
+}
+
+static const char *api_get_cwd(void) {
+    static char cwd[4096];
+    if (getcwd(cwd, sizeof(cwd))) return cwd;
+    return NULL;
+}
+
+static bool api_set_cwd(const char *path) {
+    return chdir(path) == 0;
+}
+
+static size_t api_record_len(VexValue *rec) {
+    if (!rec || rec->type != VEX_VAL_RECORD) return 0;
+    size_t count = 0;
+    VexMapIter it = vmap_iter(&rec->record);
+    const char *key;
+    void *val;
+    while (vmap_next(&it, &key, &val)) count++;
+    return count;
+}
+
+static VexValue *api_to_string(VexValue *v) {
+    if (!v) return vval_string_cstr("null");
+    VexStr s = vval_to_str(v);
+    VexValue *result = vval_string(s);
+    return result;
+}
+
+static void api_register_alias(const char *name, const char *expansion) {
+    alias_register(name, expansion);
+}
+
 void plugin_api_init(void) {
     api = (VexPluginAPI){
         .api_version = VEX_PLUGIN_API_VERSION,
@@ -254,6 +305,13 @@ void plugin_api_init(void) {
         .get_env         = api_get_env,
         .set_env         = api_set_env,
         .register_hook   = api_register_hook,
+
+        .run_command     = api_run_command,
+        .get_cwd         = api_get_cwd,
+        .set_cwd         = api_set_cwd,
+        .record_len      = api_record_len,
+        .to_string       = api_to_string,
+        .register_alias  = api_register_alias,
     };
 }
 

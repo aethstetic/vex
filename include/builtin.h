@@ -97,6 +97,7 @@ VexValue *builtin_source(EvalCtx *ctx, VexValue *input, VexValue **args, size_t 
 VexValue *builtin_alias(EvalCtx *ctx, VexValue *input, VexValue **args, size_t argc);
 
 const char *alias_lookup(const char *name);
+void alias_register(const char *name, const char *expansion);
 
 VexValue *builtin_abbr(EvalCtx *ctx, VexValue *input, VexValue **args, size_t argc);
 const char *abbr_lookup(const char *name);
