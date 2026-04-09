@@ -1,7 +1,4 @@
-.\" vex.1 - man page for the Vex shell
-.\" Copyright (c) 2026 vex
-.\"
-.TH VEX 1 "2026-03-15" "Vex" "User Commands"
+.TH VEX 1 "2026-04-09" "Vex" "User Commands"
 .SH NAME
 vex \- a structured data shell
 .SH SYNOPSIS
@@ -49,17 +46,22 @@ Arguments are accessible within the script as
 .BR $0 ", " $1 ", ..., "
 .BR $argv " (list of all arguments), and"
 .BR $argc " (argument count)."
+Scripts starting with
+.B ./
+or
+.B /
+are executed directly.
 .SH SYNTAX
 .SS Variables
 .nf
-\fBlet\fR x = 5          # immutable binding
-\fBmut\fR y = 10         # mutable binding
-echo $x              # variable expansion
+\fBlet\fR x = 5
+\fBmut\fR y = 10
+echo $x
 .fi
 .SS Strings
 .nf
 "hello $name"        # interpolated string
-\(aqraw string\(aq         # literal string (no interpolation)
+\(aqraw string\(aq         # literal string
 .fi
 .SS Lists
 .nf
@@ -114,6 +116,8 @@ Error propagation:
 .SS External Commands
 .nf
 ^command             # explicit external invocation
+./script.sh          # relative path execution
+/path/to/cmd         # absolute path execution
 command              # resolved after builtins/functions
 .fi
 .SS Redirections
@@ -137,19 +141,95 @@ command &
 .nf
 cmd1 && cmd2 || cmd3
 .fi
+.SH ALIASES
+Aliases map a name to a command string.
+Both syntaxes are supported:
+.nf
+alias ll = ls -la
+alias ll ls -la
+.fi
+.PP
+Alias values can contain
+.BR && ", " || ", and " |
+operators:
+.nf
+alias update = paru -Syu --noconfirm && fastfetch
+.fi
+.PP
+List all aliases:
+.nf
+alias
+.fi
+.SH UNDO
+.B Vex
+tracks destructive file operations and allows undoing them.
+.TP
+.B undo
+Reverse the last
+.BR rm ", " mv ", or " cp
+operation.
+Files deleted with
+.B rm
+are moved to
+.I ~/.local/share/vex/trash/
+instead of being permanently deleted.
+.TP
+.B undo-list
+List recent undoable operations with timestamps.
+.PP
+Multi-file operations are grouped:
+.B rm a.txt b.txt
+followed by
+.B undo
+restores both files.
+.SH COMMAND PREVIEW
+When typing destructive commands
+.RB ( rm ", " mv ", " cp ),
+an inline preview appears below the prompt showing what the command will do:
+.nf
+~ vex> rm *.log
+  trash: app.log, error.log (2 files, 1.5 KB)
+.fi
+.SH DIRECTORY NAVIGATION
+.TP
+.B cd
+Change directory.
+Falls back to frecency-based jumping if the path doesn't exist:
+.nf
+cd vex            # jumps to ~/dev/ideas/vex via frecency
+cd ..             # relative path
+cd ~/Downloads    # absolute path
+.fi
+.TP
+.B j
+Frecency jump to a directory by fuzzy match.
+.TP
+.B ji
+Interactive frecency directory picker.
+.SH WATCH
+.TP
+.BI "watch " "interval command"
+Re-run a command periodically with live-updating table output and diff highlighting.
+.nf
+watch 1 "ps | select pid name status | first 10"
+watch 2s "df"
+watch 500ms "date"
+.fi
+.PP
+Changed values are highlighted in yellow between refreshes.
+Press
+.B Ctrl-C
+to exit.
 .SH LINE EDITING
 .B Vex
 provides interactive line editing with two modes: Emacs (default) and Vi.
-The editing mode is controlled by the
-.B VEX_EDIT_MODE
-environment variable.
 .SS Emacs Mode (default)
 .TP
 .B Ctrl\-A / Ctrl\-E
 Move to beginning / end of line.
 .TP
 .B Ctrl\-K
-Kill text from cursor to end of line (saved to kill ring).
+Kill text from cursor to end of line.
 .TP
 .B Ctrl\-U
 Kill text from cursor to beginning of line.
@@ -158,7 +238,7 @@ Kill text from cursor to beginning of line.
 Kill word backward.
 .TP
 .B Ctrl\-Y
-Yank (paste) from kill ring.
+Yank from kill ring.
 .TP
 .B Ctrl\-R
 Reverse incremental history search.
@@ -170,11 +250,10 @@ Clear screen.
 Open current line in
 .BR $EDITOR .
 .TP
-.B Ctrl\-Z
-Suspend the shell (or foreground job).
-.TP
 .B Tab
-Trigger completion (displayed as multi-column grid).
+Trigger completion.
+Cycles inline with
+.BR (N/M) " indicator."
 .TP
 .B Shift\-Tab
 Reverse cycle through completions.
@@ -188,80 +267,62 @@ Accept one word from autosuggestion.
 Activate by setting
 .BR VEX_EDIT_MODE =vi.
 .PP
-.I Insert mode:
-.TP
+Supports
 .BR i / a / A / I
-Enter insert mode (before cursor / after cursor / end of line / beginning of line).
-.PP
-.I Normal mode movement:
-.TP
-.BR h / l
-Move left / right.
-.TP
-.BR w / b / e
-Word forward / backward / end.
-.TP
-.BR 0 " / " $
-Beginning / end of line.
-.PP
-.I Delete:
-.TP
-.B x
-Delete character under cursor.
-.TP
-.B dd
-Clear entire line.
-.TP
-.BR dw " / " db " / " d$ " / " d0
-Delete by motion.
-.PP
-.I Change:
-.TP
-.BR cc " / " cw " / " cb " / " c$ " / " c0 " / " C " / " S
-Change by motion.
-.PP
-.I Other:
-.TP
-.B u
-Undo.
-.TP
-.BR p " / " P
-Paste after / before cursor.
-.TP
-.BR yy " / " yw " / " y$ " / " y0
-Yank by motion.
-.TP
-.BR f / F / t / T " + " \fIchar\fR
-Find / find backward / till / till backward the given character.
-.TP
+(insert),
+.BR h / l / w / b / e / 0 / $
+(movement),
+.BR x / dd / dw / d$
+(delete),
+.BR cc / cw / c$ / C / S
+(change),
+.BR u
+(undo),
+.BR p / P
+(paste),
+.BR yy / yw / y$
+(yank),
+.BR f / F / t / T
+(find character),
 .B /
-Search history (activates Ctrl\-R).
+(search history).
+.SH TAB COMPLETION
+.B Vex
+provides context-aware tab completion:
+.IP \(bu 2
+Commands: builtins, aliases, PATH executables, local files/directories
+.IP \(bu 2
+Files and directories with case-insensitive matching
+.IP \(bu 2
+Pre-registered completions for 100+ commands (git, docker, cargo, etc.)
+.IP \(bu 2
+Auto-generated flag completions from
+.B \-\-help
+output on first use
+.IP \(bu 2
+Flags shown only when prefix starts with
+.B \-
 .SH BUILTINS
 .B Vex
-includes over 390 built-in commands covering file operations, data
-manipulation, string processing, type conversion, math, and more.
-.PP
-Use the
+includes over 400 built-in commands.
+Use
 .B help
-command for documentation on a specific builtin:
-.RS
+for documentation on a specific builtin:
 .nf
 help each
 help str split
 .fi
-.RE
 .PP
-Use the
+Use
 .B builtins
-command to list all available builtins.
+to list all available builtins.
 .SH PROMPT CUSTOMIZATION
-The prompt can be configured using environment variables or callback closures.
 .SS Format Specifiers
-Set the
+Set
 .B VEX_PROMPT
 or
 .B VEX_RPROMPT
-environment variables using the following specifiers:
+using these specifiers:
 .TP
 .B %d
 Current working directory (full path).
@@ -270,13 +331,22 @@ Current working directory (full path).
 Basename of current working directory.
 .TP
 .B %g
-Current Git branch name (empty if not in a repository).
+Current Git branch name.
+.TP
+.B %G
+Git status indicators (+staged *unstaged ?untracked).
 .TP
 .B %t
-Current time in HH:MM format.
+Current time (HH:MM).
 .TP
 .B %T
-Current time in HH:MM:SS format.
+Current time (HH:MM:SS).
+.TP
+.B %E
+Last command duration.
+.TP
+.B %j
+Background job count.
 .TP
 .B %n
 Username.
@@ -285,14 +355,10 @@ Username.
 Hostname.
 .TP
 .B %e
-Last exit code (displayed only if non-zero).
+Last exit code (if non-zero).
 .TP
 .B %v
-Vi mode indicator:
-.B INSERT
-or
-.BR NORMAL .
-Empty when in Emacs mode.
+Vi mode indicator (INSERT/NORMAL).
 .TP
 .B %#
 .B $
@@ -302,102 +368,120 @@ for root.
 .TP
 .BR %{ \fIstyle\fR }
 ANSI style, e.g.\&
-.BR %{bold,blue} " or " %{reset} .
+.BR %{bold,blue} ", " %{reset} ", " %{fg:196} ", " %{#ff5500} .
 .SS Prompt Closures
-For full dynamic control, assign a closure:
-.RS
 .nf
 prompt-fn {|| "my prompt> "}
 rprompt-fn {|| $"(date now | format)"}
 .fi
-.RE
 .SH HOOKS
-Hooks allow running closures at specific shell lifecycle points.
 .TP
 .B preexec
-Runs before each command is executed.
-Receives the command string as an argument.
-.RS
-.nf
-hook-add preexec {|cmd| log $cmd}
-.fi
-.RE
+Runs before each command.
 .TP
 .B precmd
-Runs before each prompt is displayed.
-.RS
-.nf
-hook-add precmd {|| refresh-status}
-.fi
-.RE
+Runs before each prompt.
 .TP
 .B chpwd
 Runs when the working directory changes.
-.RS
+.PP
 .nf
+hook-add preexec {|cmd| log $cmd}
+hook-add precmd {|| refresh-status}
 hook-add chpwd {|| ls}
 .fi
-.RE
 .SH ABBREVIATIONS
-Abbreviations expand inline as you type, before the command is executed.
-.TP
-.BI "abbr add " "name expansion"
-Define an abbreviation.
-.TP
-.BI "abbr remove " name
-Remove an abbreviation.
-.TP
-.B abbr list
-List all defined abbreviations.
-.PP
-Example:
-.RS
 .nf
 abbr add gs git status
-abbr add gco git checkout
+abbr remove gs
+abbr list
 .fi
-.RE
 .SH COMPLETIONS
-.TP
-.BI "complete " "command" " \-w " "\(dqword1 word2 ...\(dq"
-Register a static word list for completing arguments to
-.IR command .
-.TP
-.BI "complete\-fn " "\(dqcommand\(dq" " " "closure"
-Register a dynamic completion callback.
-The closure receives the current prefix and must return a list of candidates.
-.RS
 .nf
-complete-fn "myapp" {|prefix|
-    myapp --completions $prefix | lines
-}
+complete myapp -w "word1 word2"
+complete-fn "myapp" {|prefix| myapp --completions $prefix | lines}
 .fi
-.RE
+.SH CONFIGURATION
+.SS Auto-Reload
+The configuration file
+.I ~/.config/vex/config.vex
+is automatically reloaded when modified.
+No restart or
+.B source
+command is needed.
+.SS Syntax Colors
+Colors can be set as ANSI SGR codes, hex colors, or 256-color codes:
+.nf
+export VEX_COLOR_BUILTIN "#89b4fa"
+export VEX_COLOR_COMMAND "#a6e3a1"
+export VEX_COLOR_STRING "#a6e3a1"
+export VEX_COLOR_KEYWORD "#cba6f7"
+export VEX_COLOR_NUMBER "#f9e2af"
+export VEX_COLOR_OPERATOR "#9399b2"
+export VEX_COLOR_COMMENT "#6c7086"
+export VEX_COLOR_VARIABLE "#89dceb"
+export VEX_COLOR_ERROR "#f38ba8"
+export VEX_COLOR_PIPE "#74c7ec"
+export VEX_COLOR_BOOL "#fab387"
+.fi
+.SH PLUGINS
+Plugins are C shared libraries that extend vex with new commands.
+.SS Loading
+.nf
+use plugin "path/to/plugin.so"
+.fi
+.SS Autoloading
+Plugins in
+.I ~/.config/vex/plugins/
+are loaded automatically on startup.
+Each plugin is a subdirectory containing an
+.I init.vex
+file:
+.nf
+~/.config/vex/plugins/myplugin/init.vex
+.fi
+.SS Writing Plugins
+Plugins implement a
+.B vex_plugin_init
+function receiving a
+.B VexPluginAPI
+pointer (v5).
+The API provides value creation, shell interaction, command registration,
+completion registration, alias registration, environment access,
+and command execution.
+.PP
+Build with:
+.nf
+cc -shared -fPIC -o plugin.so plugin.c
+.fi
+.SS Themes Plugin
+An example themes plugin is included at
+.IR examples/plugins/themes_plugin.c .
+It provides
+.B theme-list
+and
+.B theme-apply
+commands with 7 built-in color schemes:
+catppuccin, gruvbox, tokyonight, dracula, nord, solarized, rosepine.
 .SH SHELL OPTIONS
-Shell behaviour can be tuned with
-.BR set :
 .TP
 .BR "set \-e" " / " "set \-o errexit"
-Exit immediately if a command returns a non-zero status.
+Exit on non-zero status.
 .TP
 .BR "set \-x" " / " "set \-o xtrace"
-Print each command before execution (prefixed with
-.BR + ).
+Print each command before execution.
 .TP
 .BR "set \-u" " / " "set \-o nounset"
-Treat references to undefined variables as errors.
+Error on undefined variables.
 .TP
 .B set \-o noclobber
 Prevent
 .B >
-from overwriting existing files (use
-.B >|
-to force).
+from overwriting files.
 .SH ENVIRONMENT VARIABLES
 .TP
 .B VEX_PROMPT
-Prompt format string (see
-.BR "PROMPT CUSTOMIZATION" ).
+Prompt format string.
 .TP
 .B VEX_RPROMPT
 Right-side prompt format string.
@@ -409,49 +493,45 @@ Line editing mode:
 .BR vi .
 .TP
 .B VEX_HISTSIZE
-Maximum number of history entries to retain.
-Default is 1000.
+Maximum history entries (default 1000).
 .TP
-.BR VEX_COLOR_KEYWORD ", " VEX_COLOR_BUILTIN ", etc."
-Syntax highlighting colours, specified as SGR parameter strings (e.g.\&
-.BR "1;35" " for bold magenta)."
-.TP
-.B VEX_LOGIN_SHELL
-Set to
-.B 1
-when running as a login shell.
+.B VEX_COLOR_*
+Syntax highlighting colors (ANSI SGR, hex #rrggbb, or 256-color).
 .SH FILES
 .TP
 .I /etc/vex/config.vex
-System-wide configuration, sourced on every invocation.
+System-wide configuration.
 .TP
 .I /etc/vex/profile.vex
-System-wide login configuration, sourced only for login shells.
+System-wide login configuration.
 .TP
 .I ~/.config/vex/config.vex
-Per-user configuration, sourced on every invocation.
+Per-user configuration (auto-reloaded on change).
 .TP
 .I ~/.config/vex/profile.vex
-Per-user login configuration, sourced only for login shells.
+Per-user login configuration.
 .TP
 .I ~/.config/vex/history
-Command history file.
+Command history (only successful commands saved).
 .TP
-.I ~/.config/vex/plugins.vex
-List of enabled plugins for selective autoloading.
+.I ~/.config/vex/plugins/
+Plugin autoload directory.
 .TP
 .I ~/.config/vex/themes/
 User theme files.
 .TP
-.I ~/.local/share/vex/plugins/
-Installed plugin packages.
+.I ~/.local/share/vex/trash/
+Trash directory for undoable
+.B rm
+operations.
 .SH EXIT STATUS
 .B Vex
-returns the exit status of the last command executed, or zero if no
-commands were run.
+returns the exit status of the last command executed, or the code passed to
+.BR exit .
 .SH SEE ALSO
 .BR bash (1),
 .BR zsh (1),
-.BR fish (1)
+.BR fish (1),
+.BR nu (1)
 .SH AUTHORS
-aeth
+aethstetic
