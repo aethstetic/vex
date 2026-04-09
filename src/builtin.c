@@ -756,7 +756,7 @@ VexValue *builtin_ls(EvalCtx *ctx, VexValue *input, VexValue **args, size_t argc
         free(size_strs);
     }
 
-    return list;
+    return ctx->in_pipeline ? list : vval_null();
 }
 
 VexValue *builtin_which(EvalCtx *ctx, VexValue *input, VexValue **args, size_t argc) {
@@ -1971,6 +1971,32 @@ VexValue *builtin_ps(EvalCtx *ctx, VexValue *input, VexValue **args, size_t argc
     (void)ctx; (void)input; (void)args; (void)argc;
 
     VexValue *list = vval_list();
+
+#ifdef __APPLE__
+    int mib[4] = { CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0 };
+    size_t proc_len = 0;
+    if (sysctl(mib, 4, NULL, &proc_len, NULL, 0) < 0) return list;
+    struct kinfo_proc *procs = malloc(proc_len);
+    if (!procs) return list;
+    if (sysctl(mib, 4, procs, &proc_len, NULL, 0) < 0) { free(procs); return list; }
+    size_t nprocs = proc_len / sizeof(struct kinfo_proc);
+
+    for (size_t pi = 0; pi < nprocs; pi++) {
+        struct kinfo_proc *kp = &procs[pi];
+        int pid = kp->kp_proc.p_pid;
+        char comm[256];
+        strncpy(comm, kp->kp_proc.p_comm, sizeof(comm) - 1);
+        comm[sizeof(comm) - 1] = '\0';
+        char state = '?';
+        switch (kp->kp_proc.p_stat) {
+        case SRUN: state = 'R'; break;
+        case SSLEEP: state = 'S'; break;
+        case SSTOP: state = 'T'; break;
+        case SZOMB: state = 'Z'; break;
+        }
+        char cmdline[1024];
+        snprintf(cmdline, sizeof(cmdline), "%s", comm);
+#else
     DIR *d = opendir("/proc");
     if (!d) return list;
 
@@ -2001,15 +2027,15 @@ VexValue *builtin_ps(EvalCtx *ctx, VexValue *input, VexValue **args, size_t argc
         int pid;
         char comm[256], state;
         char *start = strchr(stat_line, '(');
-        char *end = strrchr(stat_line, ')');
-        if (!start || !end) continue;
+        char *end2 = strrchr(stat_line, ')');
+        if (!start || !end2) continue;
 
         pid = atoi(stat_line);
-        size_t clen = (size_t)(end - start - 1);
+        size_t clen = (size_t)(end2 - start - 1);
         if (clen >= sizeof(comm)) clen = sizeof(comm) - 1;
         memcpy(comm, start + 1, clen);
         comm[clen] = '\0';
-        state = *(end + 2);
+        state = *(end2 + 2);
 
         snprintf(path, sizeof(path), "/proc/%s/cmdline", ent->d_name);
         f = fopen(path, "r");
@@ -2024,6 +2050,7 @@ VexValue *builtin_ps(EvalCtx *ctx, VexValue *input, VexValue **args, size_t argc
             while (n > 0 && cmdline[n-1] == ' ') cmdline[--n] = '\0';
             fclose(f);
         }
+#endif
 
         VexValue *rec = vval_record();
         VexValue *vpid = vval_int(pid);
@@ -2044,7 +2071,11 @@ VexValue *builtin_ps(EvalCtx *ctx, VexValue *input, VexValue **args, size_t argc
         vval_list_push(list, rec);
         vval_release(rec);
     }
+#ifdef __APPLE__
+    free(procs);
+#else
     closedir(d);
+#endif
     return list;
 }
 
@@ -10022,14 +10053,28 @@ VexValue *builtin_str_truncate(EvalCtx *ctx, VexValue *input, VexValue **args, s
     return result;
 }
 
+#ifdef __APPLE__
+#include <sys/sysctl.h>
+#include <mach/mach.h>
+#else
 #include <sys/sysinfo.h>
+#endif
 
 VexValue *builtin_uptime(EvalCtx *ctx, VexValue *input, VexValue **args, size_t argc) {
     (void)ctx; (void)input; (void)args; (void)argc;
+    long secs;
+#ifdef __APPLE__
+    struct timeval boottime;
+    size_t bt_len = sizeof(boottime);
+    int mib[2] = { CTL_KERN, KERN_BOOTTIME };
+    if (sysctl(mib, 2, &boottime, &bt_len, NULL, 0) < 0)
+        return vval_error("uptime: failed");
+    secs = (long)(time(NULL) - boottime.tv_sec);
+#else
     struct sysinfo si;
     if (sysinfo(&si) < 0) return vval_error("uptime: failed");
-
-    long secs = si.uptime;
+    secs = si.uptime;
+#endif
     long days = secs / 86400;
     long hours = (secs % 86400) / 3600;
     long mins = (secs % 3600) / 60;
@@ -10766,22 +10811,58 @@ VexValue *builtin_sys(EvalCtx *ctx, VexValue *input, VexValue **args, size_t arg
     long ncpu = sysconf(_SC_NPROCESSORS_ONLN);
     if (ncpu > 0) vval_record_set(rec, "cpus", vval_int(ncpu));
 
-    struct sysinfo si;
-    if (sysinfo(&si) == 0) {
+#ifdef __APPLE__
+    {
+        int64_t memsize = 0;
+        size_t mlen = sizeof(memsize);
+        sysctlbyname("hw.memsize", &memsize, &mlen, NULL, 0);
         VexValue *mem = vval_record();
-        vval_record_set(mem, "total", vval_int((int64_t)(si.totalram * si.mem_unit)));
-        vval_record_set(mem, "free", vval_int((int64_t)(si.freeram * si.mem_unit)));
-        vval_record_set(mem, "available", vval_int((int64_t)((si.freeram + si.bufferram) * si.mem_unit)));
-        vval_record_set(mem, "swap_total", vval_int((int64_t)(si.totalswap * si.mem_unit)));
-        vval_record_set(mem, "swap_free", vval_int((int64_t)(si.freeswap * si.mem_unit)));
+        vval_record_set(mem, "total", vval_int(memsize));
+
+        mach_msg_type_number_t count = HOST_VM_INFO64_COUNT;
+        vm_statistics64_data_t vmstat;
+        if (host_statistics64(mach_host_self(), HOST_VM_INFO64,
+                              (host_info64_t)&vmstat, &count) == KERN_SUCCESS) {
+            int64_t page = (int64_t)vm_kernel_page_size;
+            vval_record_set(mem, "free", vval_int((int64_t)vmstat.free_count * page));
+            vval_record_set(mem, "available", vval_int((int64_t)(vmstat.free_count + vmstat.inactive_count) * page));
+        }
         vval_record_set(rec, "memory", mem);
         vval_release(mem);
 
-        vval_record_set(rec, "uptime", vval_int((int64_t)si.uptime));
-        vval_record_set(rec, "load_avg_1m", vval_float(si.loads[0] / 65536.0));
-        vval_record_set(rec, "load_avg_5m", vval_float(si.loads[1] / 65536.0));
-        vval_record_set(rec, "load_avg_15m", vval_float(si.loads[2] / 65536.0));
+        struct timeval boottime;
+        size_t bt_len = sizeof(boottime);
+        int mib2[2] = { CTL_KERN, KERN_BOOTTIME };
+        if (sysctl(mib2, 2, &boottime, &bt_len, NULL, 0) == 0)
+            vval_record_set(rec, "uptime", vval_int((int64_t)(time(NULL) - boottime.tv_sec)));
+
+        double loadavg[3];
+        if (getloadavg(loadavg, 3) == 3) {
+            vval_record_set(rec, "load_avg_1m", vval_float(loadavg[0]));
+            vval_record_set(rec, "load_avg_5m", vval_float(loadavg[1]));
+            vval_record_set(rec, "load_avg_15m", vval_float(loadavg[2]));
+        }
     }
+#else
+    {
+        struct sysinfo si;
+        if (sysinfo(&si) == 0) {
+            VexValue *mem = vval_record();
+            vval_record_set(mem, "total", vval_int((int64_t)(si.totalram * si.mem_unit)));
+            vval_record_set(mem, "free", vval_int((int64_t)(si.freeram * si.mem_unit)));
+            vval_record_set(mem, "available", vval_int((int64_t)((si.freeram + si.bufferram) * si.mem_unit)));
+            vval_record_set(mem, "swap_total", vval_int((int64_t)(si.totalswap * si.mem_unit)));
+            vval_record_set(mem, "swap_free", vval_int((int64_t)(si.freeswap * si.mem_unit)));
+            vval_record_set(rec, "memory", mem);
+            vval_release(mem);
+
+            vval_record_set(rec, "uptime", vval_int((int64_t)si.uptime));
+            vval_record_set(rec, "load_avg_1m", vval_float(si.loads[0] / 65536.0));
+            vval_record_set(rec, "load_avg_5m", vval_float(si.loads[1] / 65536.0));
+            vval_record_set(rec, "load_avg_15m", vval_float(si.loads[2] / 65536.0));
+        }
+    }
+#endif
 
     vval_record_set(rec, "pid", vval_int(getpid()));
 
@@ -12484,22 +12565,50 @@ VexValue *builtin_df_cmd(EvalCtx *ctx, VexValue *input, VexValue **args, size_t 
     double pct = 100.0 * (double)(st.f_blocks - st.f_bfree) / (double)st.f_blocks;
     vval_record_set(rec, "use_percent", vval_float(pct));
 
-    if (!ctx->in_pipeline) {
-        vval_print(rec, stdout);
-        printf("\n");
-    }
     return rec;
 }
 
 VexValue *builtin_free_cmd(EvalCtx *ctx, VexValue *input, VexValue **args, size_t argc) {
     if (has_flag_args(args, argc))
         return fallback_external(ctx, "free", args, argc);
-    (void)ctx; (void)input; (void)args; (void)argc;
+    (void)input; (void)args; (void)argc;
+    VexValue *rec = vval_record();
+
+#ifdef __APPLE__
+    int64_t memsize = 0;
+    size_t mlen = sizeof(memsize);
+    sysctlbyname("hw.memsize", &memsize, &mlen, NULL, 0);
+
+    VexValue *mem = vval_record();
+    vval_record_set(mem, "total", vval_int(memsize));
+
+    mach_msg_type_number_t count = HOST_VM_INFO64_COUNT;
+    vm_statistics64_data_t vmstat;
+    if (host_statistics64(mach_host_self(), HOST_VM_INFO64,
+                          (host_info64_t)&vmstat, &count) == KERN_SUCCESS) {
+        int64_t page = (int64_t)vm_kernel_page_size;
+        int64_t free_mem = (int64_t)vmstat.free_count * page;
+        vval_record_set(mem, "free", vval_int(free_mem));
+        vval_record_set(mem, "used", vval_int(memsize - free_mem));
+    }
+    vval_record_set(rec, "memory", mem);
+    vval_release(mem);
+
+    struct xsw_usage sw;
+    size_t sw_len = sizeof(sw);
+    VexValue *swap = vval_record();
+    if (sysctlbyname("vm.swapusage", &sw, &sw_len, NULL, 0) == 0) {
+        vval_record_set(swap, "total", vval_int((int64_t)sw.xsu_total));
+        vval_record_set(swap, "free", vval_int((int64_t)sw.xsu_avail));
+        vval_record_set(swap, "used", vval_int((int64_t)sw.xsu_used));
+    }
+    vval_record_set(rec, "swap", swap);
+    vval_release(swap);
+#else
     struct sysinfo si;
     if (sysinfo(&si) < 0) return vval_error("free: sysinfo failed");
 
     unsigned long unit = si.mem_unit;
-    VexValue *rec = vval_record();
 
     VexValue *mem = vval_record();
     vval_record_set(mem, "total", vval_int((int64_t)(si.totalram * unit)));
@@ -12515,11 +12624,8 @@ VexValue *builtin_free_cmd(EvalCtx *ctx, VexValue *input, VexValue **args, size_
     vval_record_set(swap, "used", vval_int((int64_t)((si.totalswap - si.freeswap) * unit)));
     vval_record_set(rec, "swap", swap);
     vval_release(swap);
+#endif
 
-    if (!ctx->in_pipeline) {
-        vval_print(rec, stdout);
-        printf("\n");
-    }
     return rec;
 }
 
