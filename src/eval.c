@@ -138,13 +138,13 @@ static void suggest_command(const char *name) {
 
     size_t cap = 256;
     size_t count = 0;
-    const char **candidates = malloc(cap * sizeof(char *));
+    const char **candidates = vex_xmalloc(cap * sizeof(char *));
     char **allocated = NULL;
     size_t alloc_count = 0, alloc_cap = 0;
 
     size_t bc = builtin_count();
     for (size_t i = 0; i < bc; i++) {
-        if (count >= cap) { cap *= 2; candidates = realloc(candidates, cap * sizeof(char *)); }
+        if (count >= cap) { cap *= 2; candidates = vex_xrealloc(candidates, cap * sizeof(char *)); }
         candidates[count++] = builtin_name(i);
     }
 
@@ -161,13 +161,13 @@ static void suggest_command(const char *name) {
                 if (ent->d_name[0] == '.') continue;
 
                 if (strcmp(ent->d_name, name) == 0) continue;
-                if (count >= cap) { cap *= 2; candidates = realloc(candidates, cap * sizeof(char *)); }
+                if (count >= cap) { cap *= 2; candidates = vex_xrealloc(candidates, cap * sizeof(char *)); }
                 char *dup = strdup(ent->d_name);
                 candidates[count++] = dup;
 
                 if (alloc_count >= alloc_cap) {
                     alloc_cap = alloc_cap ? alloc_cap * 2 : 256;
-                    allocated = realloc(allocated, alloc_cap * sizeof(char *));
+                    allocated = vex_xrealloc(allocated, alloc_cap * sizeof(char *));
                 }
                 allocated[alloc_count++] = dup;
             }

@@ -3870,13 +3870,13 @@ static char *run_help_capture(const char *cmd_path) {
     close(pipefd[1]);
 
     size_t cap = 4096, len = 0;
-    char *buf = malloc(cap);
+    char *buf = vex_xmalloc(cap);
 
     for (;;) {
         if (len + 1024 > cap) {
             cap *= 2;
             if (cap > 65536) break;
-            buf = realloc(buf, cap);
+            buf = vex_xrealloc(buf, cap);
         }
         ssize_t n = read(pipefd[0], buf + len, cap - len - 1);
         if (n <= 0) break;
@@ -3910,12 +3910,12 @@ static char *run_help_capture(const char *cmd_path) {
 
         close(pipefd[1]);
         cap = 4096; len = 0;
-        buf = malloc(cap);
+        buf = vex_xmalloc(cap);
         for (;;) {
             if (len + 1024 > cap) {
                 cap *= 2;
                 if (cap > 65536) break;
-                buf = realloc(buf, cap);
+                buf = vex_xrealloc(buf, cap);
             }
             ssize_t n = read(pipefd[0], buf + len, cap - len - 1);
             if (n <= 0) break;
@@ -8279,7 +8279,7 @@ static void watch_render_table(VexValue *data, VexValue *prev) {
     }
 
     size_t col_cap = 32, col_count = 0;
-    char **cols = malloc(col_cap * sizeof(char *));
+    char **cols = vex_xmalloc(col_cap * sizeof(char *));
 
     for (size_t i = 0; i < data_len; i++) {
         VexValue *row = vval_list_get(data, i);
@@ -8294,7 +8294,7 @@ static void watch_render_table(VexValue *data, VexValue *prev) {
             if (!found) {
                 if (col_count >= col_cap) {
                     col_cap *= 2;
-                    cols = realloc(cols, col_cap * sizeof(char *));
+                    cols = vex_xrealloc(cols, col_cap * sizeof(char *));
                 }
                 cols[col_count++] = strdup(key);
             }
@@ -15156,10 +15156,12 @@ static VexValue *list_all_themes(void) {
         struct dirent *ent;
         while ((ent = readdir(d)) != NULL) {
             size_t nlen = strlen(ent->d_name);
-            if (nlen > 4 && strcmp(ent->d_name + nlen - 4, ".vex") == 0) {
+            if (nlen > 4 && nlen - 4 < 256 &&
+                strcmp(ent->d_name + nlen - 4, ".vex") == 0) {
                 char tname[256];
-                strncpy(tname, ent->d_name, nlen - 4);
-                tname[nlen - 4] = '\0';
+                size_t stem = nlen - 4;
+                memcpy(tname, ent->d_name, stem);
+                tname[stem] = '\0';
 
                 VexValue *rec = vval_record();
                 vval_record_set(rec, "name", vval_string_cstr(tname));

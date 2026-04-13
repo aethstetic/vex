@@ -387,7 +387,7 @@ VexValue *format_from_csv(const char *src, size_t len) {
     }
 
     size_t ncols = headers->list.len;
-    char **hnames = malloc(ncols * sizeof(char *));
+    char **hnames = vex_xmalloc(ncols * sizeof(char *));
     for (size_t i = 0; i < ncols; i++) {
         VexValue *h = headers->list.data[i];
         hnames[i] = strdup(vstr_data(&h->string));

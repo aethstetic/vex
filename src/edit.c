@@ -867,7 +867,7 @@ static void gather_file_completions(EditState *e, const char *prefix, size_t pre
     if (!d) return;
 
     size_t cap = 32;
-    e->comp_matches = malloc(cap * sizeof(char *));
+    e->comp_matches = vex_xmalloc(cap * sizeof(char *));
 
     struct dirent *ent;
     while ((ent = readdir(d)) != NULL) {
@@ -928,7 +928,7 @@ static void gather_dir_completions(EditState *e, const char *prefix, size_t pref
     if (!d) return;
 
     size_t cap = 32;
-    e->comp_matches = malloc(cap * sizeof(char *));
+    e->comp_matches = vex_xmalloc(cap * sizeof(char *));
 
     struct dirent *ent;
     while ((ent = readdir(d)) != NULL) {
@@ -1023,7 +1023,7 @@ static void gather_command_completions(EditState *e, const char *prefix, size_t 
     if (prefix_len == 0) return;
 
     size_t cap = 64;
-    e->comp_matches = malloc(cap * sizeof(char *));
+    e->comp_matches = vex_xmalloc(cap * sizeof(char *));
 
     static const char *keywords[] = {
         "let", "mut", "fn", "if", "else", "for", "in", "while", "loop",
@@ -1139,7 +1139,7 @@ static void gather_word_completions(EditState *e, const char *prefix, size_t pre
         return;
 
     size_t cap = 32;
-    e->comp_matches = malloc(cap * sizeof(char *));
+    e->comp_matches = vex_xmalloc(cap * sizeof(char *));
 
     for (size_t i = 0; i < count; i++) {
         if (prefix_len > 0 && strncasecmp(words[i], prefix, prefix_len) != 0) continue;
@@ -1216,7 +1216,7 @@ static void do_complete(EditState *e) {
                     for (size_t i = 0; i < var_count; i++) {
 
                         size_t nlen = strlen(vars[i]);
-                        char *match = malloc(nlen + 2);
+                        char *match = vex_xmalloc(nlen + 2);
                         match[0] = '$';
                         memcpy(match + 1, vars[i], nlen + 1);
                         e->comp_matches[e->comp_count++] = match;

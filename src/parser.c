@@ -81,6 +81,10 @@ static void expect_cmd_name(Parser *p) {
     p->had_error = true;
 }
 
+static VexValue *track_lit(Parser *p, VexValue *v) {
+    return arena_track_value(p->arena, v);
+}
+
 static ASTNode *node_new(Parser *p, ASTKind kind) {
     ASTNode *n = arena_alloc(p->arena, sizeof(ASTNode));
     memset(n, 0, sizeof(ASTNode));
@@ -129,7 +133,7 @@ static ASTNode *parse_external_arg(Parser *p) {
         size_t len = p->current.length;
         parser_advance(p);
         ASTNode *n = node_new(p, AST_LITERAL);
-        n->literal = vval_string(vstr_newn(start, len));
+        n->literal = track_lit(p, vval_string(vstr_newn(start, len)));
         return n;
     }
 
@@ -145,7 +149,7 @@ static ASTNode *parse_external_arg(Parser *p) {
         }
 
         ASTNode *n = node_new(p, AST_LITERAL);
-        n->literal = vval_string(vstr_newn(start, (size_t)(end - start)));
+        n->literal = track_lit(p, vval_string(vstr_newn(start, (size_t)(end - start))));
         return n;
     }
 
@@ -156,9 +160,9 @@ static ASTNode *parse_number(Parser *p) {
     ASTNode *n = node_new(p, AST_LITERAL);
     char *text = token_text(&p->previous);
     if (p->previous.type == TOK_INT) {
-        n->literal = vval_int(strtol(text, NULL, 10));
+        n->literal = track_lit(p, vval_int(strtol(text, NULL, 10)));
     } else {
-        n->literal = vval_float(strtod(text, NULL));
+        n->literal = track_lit(p, vval_float(strtod(text, NULL)));
     }
     free(text);
     return n;
@@ -288,7 +292,7 @@ static ASTNode *parse_string_literal(Parser *p) {
 
     if (is_raw) {
         ASTNode *n = node_new(p, AST_LITERAL);
-        n->literal = vval_string_cstr(arena_strndup(p->arena, start, len));
+        n->literal = track_lit(p, vval_string_cstr(arena_strndup(p->arena, start, len)));
         return n;
     }
 
@@ -296,7 +300,7 @@ static ASTNode *parse_string_literal(Parser *p) {
         ASTNode *n = node_new(p, AST_LITERAL);
         char *buf = arena_alloc(p->arena, len + 1);
         size_t out = process_escapes(start, len, buf);
-        n->literal = vval_string(vstr_newn(buf, out));
+        n->literal = track_lit(p, vval_string(vstr_newn(buf, out)));
         return n;
     }
 
@@ -318,7 +322,7 @@ static ASTNode *parse_string_literal(Parser *p) {
                 ASTNode *lit = arena_alloc(p->arena, sizeof(ASTNode));
                 memset(lit, 0, sizeof(ASTNode));
                 lit->kind = AST_LITERAL;
-                lit->literal = vval_string(vstr_newn(buf, slen));
+                lit->literal = track_lit(p, vval_string(vstr_newn(buf, slen)));
                 vvec_push(parts, lit);
             }
 
@@ -414,7 +418,7 @@ static ASTNode *parse_string_literal(Parser *p) {
         ASTNode *lit = arena_alloc(p->arena, sizeof(ASTNode));
         memset(lit, 0, sizeof(ASTNode));
         lit->kind = AST_LITERAL;
-        lit->literal = vval_string(vstr_newn(buf, slen));
+        lit->literal = track_lit(p, vval_string(vstr_newn(buf, slen)));
         vvec_push(parts, lit);
     }
 
@@ -577,17 +581,17 @@ static ASTNode *parse_primary(Parser *p) {
 
     if (parser_match(p, TOK_TRUE)) {
         ASTNode *n = node_new(p, AST_LITERAL);
-        n->literal = vval_bool(true);
+        n->literal = track_lit(p, vval_bool(true));
         return n;
     }
     if (parser_match(p, TOK_FALSE)) {
         ASTNode *n = node_new(p, AST_LITERAL);
-        n->literal = vval_bool(false);
+        n->literal = track_lit(p, vval_bool(false));
         return n;
     }
     if (parser_match(p, TOK_NULL)) {
         ASTNode *n = node_new(p, AST_LITERAL);
-        n->literal = vval_null();
+        n->literal = track_lit(p, vval_null());
         return n;
     }
 
@@ -781,7 +785,7 @@ static ASTNode *parse_primary(Parser *p) {
     if (parser_match(p, TOK_TILDE)) {
         ASTNode *n = node_new(p, AST_LITERAL);
         const char *home = getenv("HOME");
-        n->literal = vval_string_cstr(home ? home : "~");
+        n->literal = track_lit(p, vval_string_cstr(home ? home : "~"));
         return n;
     }
 
@@ -1676,7 +1680,7 @@ static ASTNode *parse_statement(Parser *p) {
                !is_stderr_redirect(p)))) {
                 if (check(p, TOK_IDENT)) {
                     ASTNode *lit = node_new(p, AST_LITERAL);
-                    lit->literal = vval_string(vstr_newn(p->current.start, p->current.length));
+                    lit->literal = track_lit(p, vval_string(vstr_newn(p->current.start, p->current.length)));
                     parser_advance(p);
                     vvec_push(args, lit);
                 } else {
