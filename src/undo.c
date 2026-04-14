@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <dirent.h>
 
 static bool undo_copy_file(const char *src, const char *dst) {
     FILE *in = fopen(src, "rb");
@@ -28,6 +29,8 @@ static bool trash_dir_ready = false;
 void undo_init(void) {
     undo_cnt = 0;
     trash_dir_ready = false;
+    time_t now = time(NULL);
+    undo_purge_trash(now - UNDO_TRASH_RETENTION_SECS);
 }
 
 void undo_free(void) {
@@ -207,4 +210,165 @@ size_t undo_count(void) {
 const UndoEntry *undo_get(size_t i) {
     if (i >= undo_cnt) return NULL;
     return &undo_stack[i];
+}
+
+static bool remove_path_recursive(const char *path) {
+    struct stat st;
+    if (lstat(path, &st) != 0) return errno == ENOENT;
+    if (!S_ISDIR(st.st_mode)) {
+        return unlink(path) == 0 || errno == ENOENT;
+    }
+    DIR *d = opendir(path);
+    if (!d) return false;
+    struct dirent *ent;
+    bool ok = true;
+    while ((ent = readdir(d)) != NULL) {
+        if (ent->d_name[0] == '.' &&
+            (ent->d_name[1] == '\0' ||
+             (ent->d_name[1] == '.' && ent->d_name[2] == '\0'))) continue;
+        char child[4096];
+        snprintf(child, sizeof(child), "%s/%s", path, ent->d_name);
+        if (!remove_path_recursive(child)) ok = false;
+    }
+    closedir(d);
+    if (rmdir(path) != 0 && errno != ENOENT) ok = false;
+    return ok;
+}
+
+static bool parse_trash_prefix(const char *name, time_t *ts_out) {
+    char *end = NULL;
+    long ts = strtol(name, &end, 10);
+    if (end == name || *end != '_') return false;
+    *ts_out = (time_t)ts;
+    return true;
+}
+
+static void drop_stack_entries_matching_prefix(const char *tdir) {
+    size_t w = 0;
+    size_t tdir_len = strlen(tdir);
+    for (size_t r = 0; r < undo_cnt; r++) {
+        UndoEntry *e = &undo_stack[r];
+        bool in_trash = e->kind == UNDO_RM && e->trash_path &&
+                        strncmp(e->trash_path, tdir, tdir_len) == 0;
+        if (in_trash) {
+            free(e->original_path);
+            free(e->trash_path);
+            free(e->dest_path);
+        } else if (w != r) {
+            undo_stack[w++] = *e;
+        } else {
+            w++;
+        }
+    }
+    undo_cnt = w;
+}
+
+size_t undo_purge_trash(time_t cutoff) {
+    const char *tdir = undo_get_trash_dir();
+    if (!tdir) return 0;
+    DIR *d = opendir(tdir);
+    if (!d) return 0;
+
+    size_t removed = 0;
+    struct dirent *ent;
+    while ((ent = readdir(d)) != NULL) {
+        if (ent->d_name[0] == '.') continue;
+        time_t ts;
+        if (!parse_trash_prefix(ent->d_name, &ts)) continue;
+        if (ts >= cutoff) continue;
+
+        char full[4096];
+        snprintf(full, sizeof(full), "%s/%s", tdir, ent->d_name);
+        if (remove_path_recursive(full)) removed++;
+    }
+    closedir(d);
+    return removed;
+}
+
+size_t undo_empty_trash(void) {
+    const char *tdir = undo_get_trash_dir();
+    if (!tdir) return 0;
+    DIR *d = opendir(tdir);
+    if (!d) return 0;
+
+    size_t removed = 0;
+    struct dirent *ent;
+    while ((ent = readdir(d)) != NULL) {
+        if (ent->d_name[0] == '.') continue;
+        char full[4096];
+        snprintf(full, sizeof(full), "%s/%s", tdir, ent->d_name);
+        if (remove_path_recursive(full)) removed++;
+    }
+    closedir(d);
+
+    drop_stack_entries_matching_prefix(tdir);
+    return removed;
+}
+
+static off_t path_size(const char *path) {
+    struct stat st;
+    if (lstat(path, &st) != 0) return 0;
+    if (S_ISREG(st.st_mode)) return st.st_size;
+    if (!S_ISDIR(st.st_mode)) return 0;
+
+    off_t total = 0;
+    DIR *d = opendir(path);
+    if (!d) return 0;
+    struct dirent *ent;
+    while ((ent = readdir(d)) != NULL) {
+        if (ent->d_name[0] == '.' &&
+            (ent->d_name[1] == '\0' ||
+             (ent->d_name[1] == '.' && ent->d_name[2] == '\0'))) continue;
+        char child[4096];
+        snprintf(child, sizeof(child), "%s/%s", path, ent->d_name);
+        total += path_size(child);
+    }
+    closedir(d);
+    return total;
+}
+
+size_t undo_list_trash(TrashItem **out) {
+    *out = NULL;
+    const char *tdir = undo_get_trash_dir();
+    if (!tdir) return 0;
+    DIR *d = opendir(tdir);
+    if (!d) return 0;
+
+    size_t cap = 0, cnt = 0;
+    TrashItem *items = NULL;
+    struct dirent *ent;
+    while ((ent = readdir(d)) != NULL) {
+        if (ent->d_name[0] == '.') continue;
+        time_t ts;
+        if (!parse_trash_prefix(ent->d_name, &ts)) continue;
+
+        char full[4096];
+        snprintf(full, sizeof(full), "%s/%s", tdir, ent->d_name);
+        struct stat st;
+        if (lstat(full, &st) != 0) continue;
+
+        if (cnt >= cap) {
+            cap = cap ? cap * 2 : 16;
+            items = vex_xrealloc(items, cap * sizeof(TrashItem));
+        }
+        const char *underscore = strchr(ent->d_name, '_');
+        const char *display = underscore ? underscore + 1 : ent->d_name;
+        items[cnt].name = strdup(display);
+        items[cnt].full_path = strdup(full);
+        items[cnt].deleted_at = ts;
+        items[cnt].is_dir = S_ISDIR(st.st_mode);
+        items[cnt].size = items[cnt].is_dir ? path_size(full) : st.st_size;
+        cnt++;
+    }
+    closedir(d);
+    *out = items;
+    return cnt;
+}
+
+void undo_free_trash_list(TrashItem *items, size_t n) {
+    for (size_t i = 0; i < n; i++) {
+        free(items[i].name);
+        free(items[i].full_path);
+    }
+    free(items);
 }

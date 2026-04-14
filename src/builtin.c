@@ -15360,6 +15360,92 @@ VexValue *builtin_theme(EvalCtx *ctx, VexValue *input, VexValue **args, size_t a
     return vval_error("theme not found");
 }
 
+static VexValue *trash_items_to_list(TrashItem *items, size_t n) {
+    VexValue *list = vval_list();
+    for (size_t i = 0; i < n; i++) {
+        VexValue *rec = vval_record();
+        vval_record_set(rec, "name", vval_string_cstr(items[i].name));
+        vval_record_set(rec, "path", vval_string_cstr(items[i].full_path));
+        vval_record_set(rec, "deleted_at", vval_int(items[i].deleted_at));
+        vval_record_set(rec, "size", vval_int(items[i].size));
+        vval_record_set(rec, "is_dir", vval_bool(items[i].is_dir));
+        vval_list_push(list, rec);
+    }
+    return list;
+}
+
+static void print_trash_list(TrashItem *items, size_t n) {
+    if (n == 0) { printf("trash is empty\n"); return; }
+    time_t now = time(NULL);
+    for (size_t i = 0; i < n; i++) {
+        long age = (long)(now - items[i].deleted_at);
+        char age_buf[32];
+        if (age < 60) snprintf(age_buf, sizeof(age_buf), "%lds ago", age);
+        else if (age < 3600) snprintf(age_buf, sizeof(age_buf), "%ldm ago", age / 60);
+        else if (age < 86400) snprintf(age_buf, sizeof(age_buf), "%ldh ago", age / 3600);
+        else snprintf(age_buf, sizeof(age_buf), "%ldd ago", age / 86400);
+        printf("  %s%s  %lld B  %s\n",
+               items[i].name, items[i].is_dir ? "/" : "",
+               (long long)items[i].size, age_buf);
+    }
+}
+
+VexValue *builtin_trash(EvalCtx *ctx, VexValue *input, VexValue **args, size_t argc) {
+    (void)input;
+
+    const char *sub = "list";
+    if (argc >= 1 && args[0]->type == VEX_VAL_STRING) {
+        sub = vstr_data(&args[0]->string);
+    }
+
+    if (strcmp(sub, "list") == 0) {
+        TrashItem *items = NULL;
+        size_t n = undo_list_trash(&items);
+        if (ctx->in_pipeline) {
+            VexValue *out = trash_items_to_list(items, n);
+            undo_free_trash_list(items, n);
+            return out;
+        }
+        print_trash_list(items, n);
+        undo_free_trash_list(items, n);
+        return vval_null();
+    }
+
+    if (strcmp(sub, "empty") == 0) {
+        size_t removed = undo_empty_trash();
+        if (!ctx->in_pipeline) {
+            printf("emptied trash (%zu item%s)\n", removed, removed == 1 ? "" : "s");
+        }
+        return vval_int((int64_t)removed);
+    }
+
+    if (strcmp(sub, "purge") == 0) {
+        long days = 7;
+        if (argc >= 2) {
+            if (args[1]->type == VEX_VAL_INT) {
+                days = (long)args[1]->integer;
+            } else if (args[1]->type == VEX_VAL_STRING) {
+                char *end = NULL;
+                long parsed = strtol(vstr_data(&args[1]->string), &end, 10);
+                if (end && *end == '\0') days = parsed;
+            }
+            if (days < 0) days = 0;
+        }
+        time_t cutoff = time(NULL) - days * 86400;
+        size_t removed = undo_purge_trash(cutoff);
+        if (!ctx->in_pipeline) {
+            printf("purged %zu item%s older than %ld day%s\n",
+                   removed, removed == 1 ? "" : "s",
+                   days, days == 1 ? "" : "s");
+        }
+        return vval_int((int64_t)removed);
+    }
+
+    fprintf(stderr, "trash: unknown subcommand '%s'\n", sub);
+    fprintf(stderr, "usage: trash [list|empty|purge [days]]\n");
+    return vval_error("unknown trash subcommand");
+}
+
 void builtins_init(void) {
     register_builtin("echo",    builtin_echo,    "echo [args...]",       "Print arguments");
     register_builtin("cd",      builtin_cd,      "cd [dir]",             "Change directory");
@@ -15839,6 +15925,7 @@ void builtins_init(void) {
     register_builtin("pkg",       builtin_pkg,        "pkg <subcmd> [args...]",  "Package manager (install/remove/list/update/init)");
 
     register_builtin("theme",     builtin_theme,      "theme <name>",            "Switch prompt theme (default/minimal/powerline/lambda/pure/robbyrussell)");
+    register_builtin("trash",     builtin_trash,      "trash [list|empty|purge [days]]", "List, empty, or age-purge the rm trash");
     register_builtin("def-cmd",   builtin_def_cmd,    "def-cmd <name> [usage] [desc] <closure>", "Register a script command");
 
     builtin_ht_build();

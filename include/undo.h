@@ -31,4 +31,20 @@ size_t undo_count(void);
 const UndoEntry *undo_get(size_t i);
 const char *undo_get_trash_dir(void);
 
+#define UNDO_TRASH_RETENTION_SECS (7 * 24 * 60 * 60)
+
+size_t undo_purge_trash(time_t cutoff);
+size_t undo_empty_trash(void);
+
+typedef struct {
+    char *name;
+    char *full_path;
+    time_t deleted_at;
+    off_t size;
+    bool is_dir;
+} TrashItem;
+
+size_t     undo_list_trash(TrashItem **out);
+void       undo_free_trash_list(TrashItem *items, size_t n);
+
 #endif

@@ -528,6 +528,7 @@ VexValue *builtin_pkg(EvalCtx *ctx, VexValue *input, VexValue **args, size_t arg
 void pkg_autoload(EvalCtx *ctx);
 
 VexValue *builtin_theme(EvalCtx *ctx, VexValue *input, VexValue **args, size_t argc);
+VexValue *builtin_trash(EvalCtx *ctx, VexValue *input, VexValue **args, size_t argc);
 
 VexValue *builtin_def_cmd(EvalCtx *ctx, VexValue *input, VexValue **args, size_t argc);
 bool script_cmd_exists(const char *name);

@@ -1157,7 +1157,8 @@ static ASTNode *parse_command(Parser *p) {
         strcmp(n->call.cmd_name, "scp-put") == 0 ||
         strcmp(n->call.cmd_name, "ssh") == 0 ||
         strcmp(n->call.cmd_name, "pkg") == 0 ||
-        strcmp(n->call.cmd_name, "theme") == 0)
+        strcmp(n->call.cmd_name, "theme") == 0 ||
+        strcmp(n->call.cmd_name, "trash") == 0)
         is_builtin = false;
 
     VEX_VEC(ASTNode *) args;
