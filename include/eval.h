@@ -8,6 +8,8 @@ typedef enum {
     FLOW_RETURN,
 } FlowSignal;
 
+#define VEX_MAX_CALL_DEPTH 1000
+
 /* Interpreter state threaded through all eval calls. */
 struct EvalCtx {
     Scope *global;
@@ -19,6 +21,7 @@ struct EvalCtx {
     int last_exit_code;
     FlowSignal flow;
     VexValue *flow_value;
+    int call_depth;
 };
 
 EvalCtx  eval_ctx_new(void);

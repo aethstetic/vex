@@ -476,6 +476,12 @@ VexValue *eval_call_closure(EvalCtx *ctx, VexValue *closure,
         return vval_error("not a closure");
     }
 
+    if (ctx->call_depth >= VEX_MAX_CALL_DEPTH) {
+        ctx->had_error = true;
+        return vval_error("call depth exceeded (recursion too deep)");
+    }
+    ctx->call_depth++;
+
     Scope *call_scope = scope_new(closure->closure.env);
 
     Param *params = (Param *)closure->closure.params;
@@ -523,6 +529,7 @@ VexValue *eval_call_closure(EvalCtx *ctx, VexValue *closure,
 
     ctx->current = saved;
     scope_free(call_scope);
+    ctx->call_depth--;
 
     return result;
 }

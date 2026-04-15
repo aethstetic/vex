@@ -348,6 +348,21 @@ bool plugin_load(const char *path) {
         return false;
     }
 
+    uint32_t *plugin_ver = (uint32_t *)dlsym(handle, "vex_plugin_api_version");
+    if (!plugin_ver) {
+        vex_err("plugin: '%s' missing vex_plugin_api_version symbol "
+                "(expected %u)", path, (unsigned)VEX_PLUGIN_API_VERSION);
+        dlclose(handle);
+        return false;
+    }
+    if (*plugin_ver != VEX_PLUGIN_API_VERSION) {
+        vex_err("plugin: '%s' api version mismatch: plugin=%u vex=%u",
+                path, (unsigned)*plugin_ver,
+                (unsigned)VEX_PLUGIN_API_VERSION);
+        dlclose(handle);
+        return false;
+    }
+
     VexPluginInitFn init_fn;
     *(void **)&init_fn = dlsym(handle, "vex_plugin_init");
     if (!init_fn) {
@@ -356,9 +371,13 @@ bool plugin_load(const char *path) {
         return false;
     }
 
-    if (n_plugins < MAX_PLUGINS) {
-        loaded_plugins[n_plugins++] = handle;
+    if (n_plugins >= MAX_PLUGINS) {
+        vex_err("plugin: '%s' rejected: plugin table full (max %d)",
+                path, MAX_PLUGINS);
+        dlclose(handle);
+        return false;
     }
+    loaded_plugins[n_plugins++] = handle;
 
     init_fn(&api);
 

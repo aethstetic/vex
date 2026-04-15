@@ -3,6 +3,11 @@
 
 #define VEX_PLUGIN_API_VERSION 5
 
+/* Plugins must use this macro at file scope to export a version symbol
+   that vex checks before calling vex_plugin_init. */
+#define VEX_PLUGIN_DECLARE() \
+    uint32_t vex_plugin_api_version = VEX_PLUGIN_API_VERSION
+
 typedef VexValue *(*VexPluginCommandFn)(void *api, VexValue *input,
                                         VexValue **args, size_t argc);
 

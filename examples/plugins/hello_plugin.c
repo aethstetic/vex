@@ -85,6 +85,8 @@ static VexValue *cmd_greet(void *api_ptr, VexValue *input, VexValue **args, size
 
 /* ---- Plugin entry point ---- */
 
+uint32_t vex_plugin_api_version = 5;
+
 void vex_plugin_init(VexPluginAPI *api) {
     api->log("hello plugin loaded (API v%d)", api->api_version);
 

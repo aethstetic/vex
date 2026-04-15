@@ -276,6 +276,8 @@ static const char *theme_names[] = {
     "nord", "solarized", "rosepine", NULL
 };
 
+uint32_t vex_plugin_api_version = 5;
+
 void vex_plugin_init(VexPluginAPI *api) {
     g_api = api;
     api->register_command("theme-list", cmd_theme_list,

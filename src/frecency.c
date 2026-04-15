@@ -1,7 +1,9 @@
 #include "vex.h"
 #include <sys/stat.h>
+#include <sys/file.h>
 #include <time.h>
 #include <unistd.h>
+#include <errno.h>
 
 #define FRECENCY_MAX_ENTRIES 1000
 #define FRECENCY_AGING_THRESHOLD 9000.0
@@ -41,6 +43,9 @@ static void frecency_load(FrecencyDB *db) {
     free(path);
     if (!f) return;
 
+    int fd = fileno(f);
+    if (fd >= 0) flock(fd, LOCK_SH);
+
     char line[4096];
     while (fgets(line, sizeof(line), f)) {
         size_t len = strlen(line);
@@ -52,7 +57,8 @@ static void frecency_load(FrecencyDB *db) {
         if (sscanf(line, "%lf|%ld|%4095[^\n]", &score, &ts, fpath) == 3) {
             if (db->count >= db->cap) {
                 db->cap = db->cap ? db->cap * 2 : 128;
-                db->entries = realloc(db->entries, db->cap * sizeof(FrecencyEntry));
+                db->entries = vex_xrealloc(db->entries,
+                                           db->cap * sizeof(FrecencyEntry));
             }
             db->entries[db->count++] = (FrecencyEntry){
                 .path = strdup(fpath),
@@ -61,6 +67,7 @@ static void frecency_load(FrecencyDB *db) {
             };
         }
     }
+    if (fd >= 0) flock(fd, LOCK_UN);
     fclose(f);
 }
 
@@ -68,15 +75,28 @@ static void frecency_save(FrecencyDB *db) {
     char *path = frecency_db_path();
     if (!path) return;
 
-    FILE *f = fopen(path, "w");
-    free(path);
-    if (!f) return;
+    char tmp[4096];
+    snprintf(tmp, sizeof(tmp), "%s.tmp.%ld", path, (long)getpid());
+
+    FILE *f = fopen(tmp, "w");
+    if (!f) { free(path); return; }
+
+    int fd = fileno(f);
+    if (fd >= 0) flock(fd, LOCK_EX);
 
     for (size_t i = 0; i < db->count; i++) {
+        const char *p = db->entries[i].path;
+        if (!p || strchr(p, '\n')) continue;
         fprintf(f, "%.2f|%ld|%s\n", db->entries[i].score,
-                (long)db->entries[i].last_access, db->entries[i].path);
+                (long)db->entries[i].last_access, p);
     }
+
+    fflush(f);
+    if (fd >= 0) flock(fd, LOCK_UN);
     fclose(f);
+
+    if (rename(tmp, path) != 0) unlink(tmp);
+    free(path);
 }
 
 static void frecency_free(FrecencyDB *db) {

@@ -374,6 +374,32 @@ VexValue *builtin_cd(EvalCtx *ctx, VexValue *input, VexValue **args, size_t argc
         dir = vstr_data(&args[0]->string);
     }
 
+    char cwd_before[4096];
+    bool have_cwd_before = (getcwd(cwd_before, sizeof(cwd_before)) != NULL);
+
+    if (strcmp(dir, "-") == 0) {
+        const char *oldpwd = getenv("OLDPWD");
+        if (!oldpwd || !*oldpwd) {
+            vex_err("cd: OLDPWD not set");
+            ctx->had_error = true;
+            return vval_error("OLDPWD not set");
+        }
+        if (chdir(oldpwd) != 0) {
+            vex_err("cd: %s: %s", oldpwd, strerror(errno));
+            ctx->had_error = true;
+            return vval_error(strerror(errno));
+        }
+        if (have_cwd_before) setenv("OLDPWD", cwd_before, 1);
+        char cwd_after[4096];
+        if (getcwd(cwd_after, sizeof(cwd_after))) {
+            setenv("PWD", cwd_after, 1);
+            printf("%s\n", cwd_after);
+            frecency_add(cwd_after);
+        }
+        hooks_run_chpwd(ctx);
+        return vval_null();
+    }
+
     char expanded[4096];
     if (dir[0] == '~') {
         const char *home = getenv("HOME");
@@ -429,6 +455,11 @@ VexValue *builtin_cd(EvalCtx *ctx, VexValue *input, VexValue **args, size_t argc
         char cwd[4096];
         if (getcwd(cwd, sizeof(cwd))) frecency_add(cwd);
     }
+
+    if (have_cwd_before) setenv("OLDPWD", cwd_before, 1);
+    char cwd_after[4096];
+    if (getcwd(cwd_after, sizeof(cwd_after))) setenv("PWD", cwd_after, 1);
+
     hooks_run_chpwd(ctx);
     return vval_null();
 }
